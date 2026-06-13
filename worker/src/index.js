@@ -13,7 +13,11 @@ const MANIFEST_KEY = 'manifest.json';
 const json = (data, status = 200, extra = {}) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', ...extra },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'access-control-allow-origin': '*',   // Web/Tauri 客户端跨域 fetch（数据仍需令牌）
+      ...extra,
+    },
   });
 
 async function sha256Hex(text) {
@@ -168,6 +172,7 @@ async function handleMedia(env, ctx, id, file, request) {
   if (cached) {
     const h = new Headers(cached.headers);
     h.set('x-edge-cache', 'HIT');
+    h.set('access-control-allow-origin', '*');
     return new Response(cached.body, { status: cached.status, headers: h });
   }
 
@@ -196,6 +201,7 @@ async function handleMedia(env, ctx, id, file, request) {
   headers.set('accept-ranges', 'bytes');
   headers.set('cache-control', 'public, max-age=86400, immutable'); // 内容按 id 寻址，永不变
   headers.set('x-edge-cache', 'MISS');
+  headers.set('access-control-allow-origin', '*');
   if (!headers.has('content-type')) {
     headers.set('content-type', file.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg');
   }
