@@ -1,22 +1,30 @@
 # 开发规范（Contributing）
 
-本项目采用 **issue 先行** 的开发流程。任何新需求、功能改动、bug 修复，**必须先建 issue，再开发、再提交**。
+本项目采用 **需求文档先行 + issue 先行** 的开发流程。任何新需求、功能改动，**必须先有需求文档（含 Epic / Story），再按 Story 建 issue，再开发、再提交**。
 
 ## 流程
 
 ```
-提需求 → 建 Issue（按统一模板填全 5 项）→ 开发（feat/<issue号> 分支）→ 提交（关联 issue）→ 验收 → 合并/关闭 issue
+提需求 → 写需求文档（Epic + Story）→ 评审 → 按 Story 建 Issue → 开发（feat/<issue号> 分支）→ 提交（关联 issue）→ 对照 Story 验收 → 合并/关闭
 ```
 
-1. **先建 Issue**：用 [功能需求模板](.github/ISSUE_TEMPLATE/feature_request.md) 新建,把 5 项填全:
-   - **🎯 目标**：要解决什么、达到什么效果
-   - **✨ 功能特性**：逐条列出要做的功能点
-   - **📐 改动范围**：涉及哪些模块/文件,哪些不做
-   - **🧪 测试方案**：怎么验证(步骤/命令/用例)
-   - **✅ 验收方案**：满足哪些条件算"做完"
-2. **再开发**：从 `main` 切分支 `feat/<issue号>-<简述>`(或 `fix/<issue号>-...`)。
-3. **再提交**：commit / PR 标题或正文里**关联 issue 号**(如 `feat: 选集面板 (#12)` 或正文 `Closes #12`)。
-4. **验收**：对照 issue 的「验收方案」逐条确认,通过后合并并关闭 issue。
+### 1. 先写需求文档（含 Epic / Story）
+在 `docs/requirements/` 下新建需求文档（参考 [模板](docs/requirements/TEMPLATE.md)）：
+- **Epic**：一个大功能/主题（如「首页模块」「播放器增强」）。每个 Epic 写清背景、目标、范围。
+- **Story**：Epic 拆出的用户故事，格式「作为<角色>，我想<能力>，以便<价值>」，每条带**验收标准（AC）**。
+- 一个 Epic 含多个 Story；Story 要小到能独立开发与验收。
+
+### 2. 按 Story 建 Issue
+每个 Story 对应一个 [功能需求 issue](.github/ISSUE_TEMPLATE/feature_request.md)，把 5 项填全（目标/功能特性/改动范围/测试方案/验收方案），并在 issue 里回链所属 Epic 与需求文档。
+
+### 3. 再开发
+从 `main` 切分支 `feat/<issue号>-<简述>`（或 `fix/<issue号>-...`）。
+
+### 4. 再提交
+commit / PR 标题或正文**关联 issue 号**（如 `feat: 选集面板 (#12)` 或正文 `Closes #12`）。
+
+### 5. 验收
+对照 Story 的验收标准 + issue 的验收方案逐条确认，通过后合并并关闭。
 
 ## 约定
 
