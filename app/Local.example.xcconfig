@@ -1,0 +1,4 @@
+// 复制本文件为 Local.xcconfig（已被 .gitignore 忽略，不会进仓库），填你自己的 Worker 主机名。
+// ⚠️ 只填主机名，不要带 https:// 和尾部斜杠——xcconfig 会把 // 当注释，写完整 URL 会被截断。
+// 例：
+// CV_SERVER_HOST = video.example.com
