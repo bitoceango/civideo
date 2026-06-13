@@ -24,16 +24,22 @@ struct HomeView: View {
                         SeriesRow(title: "我喜欢的", subtitle: nil, videos: model.favoriteVideos, big: false)
                     }
                     ForEach(model.seriesGroups) { g in
-                        SeriesRow(title: g.title, subtitle: "共 \(g.videos.count) 集", videos: g.videos, big: false)
+                        SeriesRow(title: g.title, subtitle: "共 \(g.videos.count) 集",
+                                  videos: g.videos, big: false, seriesId: g.id)
                     }
                     if model.library.isEmpty && model.loadError == nil { emptyState }
                     Color.clear.frame(height: 30)
                 }
             }
             .background(Theme.bg)
-            .navigationDestination(for: String.self) { catId in
-                if let g = model.categoryGroups.first(where: { $0.id == catId }) {
-                    CategoryDetailView(group: g)
+            .navigationDestination(for: LibraryDestination.self) { dest in
+                switch dest {
+                case .category(let id):
+                    if let g = model.categoryGroups.first(where: { $0.id == id }) {
+                        CategoryDetailView(group: g)
+                    }
+                case .series(let name):
+                    SeriesDetailView(title: name)
                 }
             }
             .refreshable { await model.reload() }
@@ -81,7 +87,7 @@ struct HomeView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 18) {
                 ForEach(model.categoryGroups) { g in
-                    NavigationLink(value: g.id) {
+                    NavigationLink(value: LibraryDestination.category(g.id)) {
                         VStack(spacing: 8) {
                             ZStack {
                                 Circle().fill(CategoryStyle.color(g.title).opacity(0.22)).frame(width: 64, height: 64)

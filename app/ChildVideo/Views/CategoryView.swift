@@ -36,7 +36,7 @@ struct CategoryView: View {
                 } else {
                     LazyVGrid(columns: cols, spacing: 18) {
                         ForEach(model.categoryGroups) { g in
-                            NavigationLink(value: g.id) { CategoryCard(group: g) }
+                            NavigationLink(value: LibraryDestination.category(g.id)) { CategoryCard(group: g) }
                                 .buttonStyle(.plain)
                         }
                     }
@@ -45,9 +45,14 @@ struct CategoryView: View {
             }
             .background(Theme.bg)
             .navigationTitle("分类")
-            .navigationDestination(for: String.self) { catId in
-                if let g = model.categoryGroups.first(where: { $0.id == catId }) {
-                    CategoryDetailView(group: g)
+            .navigationDestination(for: LibraryDestination.self) { dest in
+                switch dest {
+                case .category(let id):
+                    if let g = model.categoryGroups.first(where: { $0.id == id }) {
+                        CategoryDetailView(group: g)
+                    }
+                case .series(let name):
+                    SeriesDetailView(title: name)
                 }
             }
         }
@@ -113,7 +118,7 @@ struct CategoryDetailView: View {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(bySeries) { s in
                     SeriesRow(title: s.title, subtitle: "共 \(s.videos.count) 集",
-                              videos: s.videos, big: false)
+                              videos: s.videos, big: false, seriesId: s.id)
                 }
                 Color.clear.frame(height: 30)
             }
