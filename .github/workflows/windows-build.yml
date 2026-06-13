@@ -40,7 +40,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: childvideo-windows-x64
-          path: |
-            windows/src-tauri/target/release/bundle/msi/*.msi
-            windows/src-tauri/target/release/bundle/nsis/*-setup.exe
+          path: windows/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
