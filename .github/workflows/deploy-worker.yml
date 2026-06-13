@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: 生成 wrangler.jsonc（私密配置不入库，由仓库变量生成）
         run: |
