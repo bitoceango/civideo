@@ -13,7 +13,7 @@
 实际部署值：bucket = `child-video`（APAC），`R2_ACCOUNT_ID=<YOUR_CLOUDFLARE_ACCOUNT_ID>`，Worker 域名 `video.example.com`。
 
 ```bash
-node cli/src/index.js upload <视频文件> --title "标题" [--series "系列名"] --json
+node cli/src/index.js upload <视频文件> --title "标题" [--series "系列名"] [--category "学科"] --json
 node cli/src/index.js list --json
 node cli/src/index.js remove <id> --json
 node cli/src/index.js doctor --json   # 检查 ffmpeg/配置/R2 连通性

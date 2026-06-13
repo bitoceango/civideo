@@ -127,6 +127,18 @@ final class AppModel: ObservableObject {
         return order.map { SeriesGroup(id: $0, title: $0, videos: map[$0] ?? []) }
     }
 
+    // 按学科分组（manifest 的 category 字段）
+    var categoryGroups: [SeriesGroup] {
+        var order: [String] = []
+        var map: [String: [Video]] = [:]
+        for v in library {
+            let key = v.category ?? "未分类"
+            if map[key] == nil { order.append(key); map[key] = [] }
+            map[key]?.append(v)
+        }
+        return order.map { SeriesGroup(id: $0, title: $0, videos: map[$0] ?? []) }
+    }
+
     // 继续观看：有进度、未看完
     var continueWatching: [Video] {
         library.filter { v in

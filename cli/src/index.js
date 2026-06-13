@@ -64,6 +64,7 @@ program
   .argument('<file>', '视频文件路径')
   .requiredOption('--title <title>', '标题')
   .option('--series <series>', '系列/合集名')
+  .option('--category <category>', '学科/分类（如 科学/英语/数理/国学/艺术）')
   .option('--id <id>', '指定视频 ID（同 ID 重传即覆盖，幂等）')
   .option('--max-height <n>', '真转码时限制最大高度（0 关闭）', '720')
   .option('--dry-run', '只探测并输出处理计划，不处理不上传')
@@ -133,6 +134,7 @@ program
         id,
         title: opts.title,
         series: opts.series ?? null,
+        category: opts.category ?? null,
         durationSec: meta.durationSec,
         width: meta.width,
         height: meta.height,
