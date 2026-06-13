@@ -21,11 +21,15 @@ WORK="$(mktemp -d /tmp/yt-import.XXXXXX)"
 cd "$WORK"
 echo "▶ 下载到 $WORK（720p / H.264 / AAC / 内嵌中英字幕）..."
 
-yt-dlp --cookies-from-browser "$BROWSER" \
+# env -u NODE_OPTIONS：某些环境注入的 NODE_OPTIONS 会破坏 yt-dlp 的 JS 解算器（解 n-challenge）；清掉它最稳。
+# player_client=web,tv,web_safari：换 web 客户端签名的媒体 URL，避开默认客户端的 403。
+env -u NODE_OPTIONS yt-dlp --cookies-from-browser "$BROWSER" \
+  --extractor-args "youtube:player_client=web,tv,web_safari" \
   -S "res:720,vcodec:h264,acodec:aac" --merge-output-format mp4 \
   --write-subs --write-auto-subs --sub-langs "zh-Hans,zh,en" \
   --convert-subs srt --embed-subs --embed-metadata \
   --download-archive archive.txt \
+  -R 20 --fragment-retries 40 \
   -o "%(playlist_index)02d-%(title)s.%(ext)s" \
   "$PLAYLIST"
 
