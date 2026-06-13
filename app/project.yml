@@ -27,6 +27,8 @@ targets:
       properties:
         CFBundleDisplayName: 儿童视频
         UILaunchScreen: {}
+        UIBackgroundModes:
+          - audio
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
