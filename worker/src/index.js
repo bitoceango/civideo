@@ -27,12 +27,19 @@ function randomToken() {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// 从 Authorization 头取出设备，未通过返回 null
+// 取设备令牌：优先 Authorization 头（Apple 端），否则 ?t= query（供 HTML <video> 流播，
+// 因为 video 元素无法设置自定义请求头）。未通过返回 null。
 async function authDevice(request, env) {
-  const auth = request.headers.get('Authorization') || '';
-  const m = auth.match(/^Bearer\s+([0-9a-f]{64})$/i);
-  if (!m) return null;
-  const hash = await sha256Hex(m[1]);
+  let token = null;
+  const m = (request.headers.get('Authorization') || '').match(/^Bearer\s+([0-9a-f]{64})$/i);
+  if (m) {
+    token = m[1];
+  } else {
+    const t = new URL(request.url).searchParams.get('t');
+    if (t && /^[0-9a-f]{64}$/i.test(t)) token = t;
+  }
+  if (!token) return null;
+  const hash = await sha256Hex(token);
   return env.DB.prepare('SELECT * FROM devices WHERE token_hash = ?').bind(hash).first();
 }
 
