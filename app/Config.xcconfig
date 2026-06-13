@@ -1,0 +1,8 @@
+// 服务器地址构建期注入（issue #22）。
+// CV_SERVER_HOST 只填「主机名」——不带 https://、不带尾部斜杠（xcconfig 会把 // 当注释，故不能写完整 URL）。
+// 代码（Config.defaultServer）会自动补 https://。默认空 = 公开构建留空，激活页由用户自填。
+CV_SERVER_HOST =
+
+// 个人构建：复制 Local.example.xcconfig 为 Local.xcconfig（已 gitignore，不进仓库）并填你的域名；
+// 下面这行会把它包含进来覆盖上面的空默认值（文件不存在时 #include? 静默跳过，不影响公开构建）。
+#include? "Local.xcconfig"

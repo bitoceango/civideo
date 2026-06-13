@@ -1,0 +1,125 @@
+name: Release (多平台打包)
+
+# 打 v* tag（如 v0.1.0）触发：并行构建各平台产物并发布到 GitHub Release。
+# 各平台「能否下载即用」见下方 Release 说明：桌面端可下载（未签名需绕过系统拦截），
+# iOS 因签名限制不能直接安装，ipa 仅供 SideStore/AltStore 自签侧载。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 打包 CLI
+        run: |
+          cd cli
+          npm install --omit=dev
+          npm pack
+          mv *.tgz "$GITHUB_WORKSPACE/childvideo-cli.tgz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli
+          path: childvideo-cli.tgz
+
+  macos-app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 xcodegen
+        run: brew install xcodegen
+      - name: 生成工程
+        run: cd app && xcodegen generate
+      - name: 构建 macOS App（未签名）
+        run: |
+          cd app
+          xcodebuild -project ChildVideo.xcodeproj -scheme ChildVideo_macOS \
+            -configuration Release -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: 压缩 .app
+        run: |
+          cd app/build/dd/Build/Products/Release
+          ditto -c -k --keepParent ChildVideo.app "$GITHUB_WORKSPACE/childvideo-macos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: childvideo-macos.zip
+
+  ios-ipa:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 xcodegen
+        run: brew install xcodegen
+      - name: 生成工程
+        run: cd app && xcodegen generate
+      - name: 构建 iOS（未签名）
+        run: |
+          cd app
+          xcodebuild -project ChildVideo.xcodeproj -scheme ChildVideo_iOS \
+            -configuration Release -sdk iphoneos -derivedDataPath build/dd-ios \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: 打包未签名 .ipa
+        run: |
+          cd app/build/dd-ios/Build/Products/Release-iphoneos
+          mkdir -p Payload
+          cp -R ChildVideo.app Payload/
+          zip -qr "$GITHUB_WORKSPACE/childvideo-ios-unsigned.ipa" Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: childvideo-ios-unsigned.ipa
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: windows/src-tauri
+      - name: 构建 Tauri 安装包
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: windows/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
+  release:
+    needs: [cli, macos-app, ios-ipa, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载所有产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          body: |
+            # ChildVideo ${{ github.ref_name }}
+
+            家庭自用儿童视频流媒体——家长上传，孩子在封闭播放器里观看。各平台安装：
+
+            | 平台 | 产物 | 安装 |
+            |---|---|---|
+            | **Windows** | `*-setup.exe` | 双击安装。未签名 → SmartScreen 提示时点「More info → Run anyway」 |
+            | **macOS** | `childvideo-macos.zip` | 解压后**右键 .app → 打开**（未签名/未公证，首次需绕过 Gatekeeper） |
+            | **iOS** | `childvideo-ios-unsigned.ipa` | ⚠️ **不能直接安装**。需用 **SideStore/AltStore** 以你自己的 Apple ID 重签后侧载（见 README） |
+            | **CLI** | `childvideo-cli.tgz` | `npm i -g ./childvideo-cli.tgz`，用于上传视频到你的 R2 |
+
+            首次启动在 App 内填**你自己的 Worker 服务器地址 + 激活密钥**（每人自部署后端，见 README）。

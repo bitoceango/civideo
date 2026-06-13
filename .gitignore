@@ -1,6 +1,7 @@
 # ---- 本地私密配置（含真实域名/账号ID/数据库ID 等，切勿提交）----
 deploy.local.json
 worker/wrangler.jsonc
+app/Local.xcconfig
 .env
 .env.local
 *.local.swift

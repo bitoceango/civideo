@@ -35,6 +35,10 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
         ITSAppUsesNonExemptEncryption: false
+        CVServerHost: $(CV_SERVER_HOST)        # #22 构建期注入服务器主机名（公开构建为空）
+    configFiles:
+      Debug: Config.xcconfig
+      Release: Config.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.childvideo

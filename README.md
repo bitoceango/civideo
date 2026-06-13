@@ -61,19 +61,45 @@
 
 > 私密部署参数（域名 / Account ID / 数据库 ID 等）放在 `deploy.local.json`（已 gitignore，不进仓库）。下面用占位符。
 
+### 0. 必需的人工步骤（无法自动化，先做好这些）
+
+`npm run setup` 和 CI 能自动建桶/建库/迁移/部署，但下面这些**必须你手动完成**：
+
+| 步骤 | 说明 |
+|---|---|
+| **注册 Cloudflare 账号** | 免费：[dash.cloudflare.com](https://dash.cloudflare.com) |
+| **`npx wrangler login`** | 浏览器授权 wrangler（首次部署前必需） |
+| **建 R2 API Token**（给 CLI 上传用） | 控制台 → R2 → *Manage R2 API Tokens* → 建 S3 凭证，填进 `~/.zshrc` 环境变量（见 [`cli/README.md`](cli/README.md)）。⚠️ wrangler 部署**不**需要它，但 CLI 上传视频需要 |
+| **（可选）自定义域名** | 把域名托管到 Cloudflare；不绑就用免费 `*.workers.dev`（中国大陆可能被墙） |
+| **iOS 设备分发** | 见 §3：免费 Apple ID 自建（证书 7 天）或 SideStore 自动续签侧载 |
+| **（可选）开启 CI 自动部署** | 仓库 Settings → Actions 配 Secret `CLOUDFLARE_API_TOKEN` + Variables `CF_ACCOUNT_ID`/`D1_DATABASE_ID`/`CF_DOMAIN`，之后合并到 main 自动部署 worker |
+
 ### 1. 后端（Cloudflare）
+
+先 `npx wrangler login`（浏览器登录，首次必需）。然后**一键部署**（推荐）——自动建 R2 桶 / 建 D1 并写回 id / 迁移表 / 设密钥 / 部署，只问你域名和密钥：
 
 ```bash
 cd worker
 npm install
-cp wrangler.example.jsonc wrangler.jsonc      # 填入你的域名 / bucket
-npx wrangler r2 bucket create child-video      # 建 R2 桶（控制台也可）
-npx wrangler d1 create child-video-db          # 建 D1，把返回的 database_id 填进 wrangler.jsonc
-npx wrangler d1 execute child-video-db --remote --file=./schema.sql
-npx wrangler secret put ACTIVATION_KEY         # 设备激活密钥：长随机串（生成：openssl rand -hex 24）；不设则回退用 PARENT_PIN
-npx wrangler secret put PARENT_PIN             # 家长门 PIN：改每日时长/允许时段规则用，可短数字
-npx wrangler deploy                            # 部署 + 自动绑定自定义域名
+npm run setup       # 默认免费 *.workers.dev（零域名）；过程中可选绑定自定义域名
 ```
+
+> 💡 `*.workers.dev` 在中国大陆可能被墙；需要稳定访问时按提示绑定自定义域名（需已托管在 Cloudflare）。
+
+<details><summary>或手动逐步</summary>
+
+```bash
+cd worker
+npm install
+cp wrangler.example.jsonc wrangler.jsonc       # 默认 workers.dev；要自定义域名改这里
+npx wrangler r2 bucket create child-video       # 建 R2 桶
+npx wrangler d1 create child-video-db           # 建 D1，把返回的 database_id 填进 wrangler.jsonc
+npx wrangler d1 execute child-video-db --remote --file=./schema.sql
+npx wrangler secret put ACTIVATION_KEY          # 设备激活密钥：长随机串（openssl rand -hex 24）；不设则回退用 PARENT_PIN
+npx wrangler secret put PARENT_PIN              # 家长门 PIN：改每日时长/允许时段规则用，可短数字
+npx wrangler deploy
+```
+</details>
 
 ### 2. 上传 CLI
 
@@ -97,11 +123,13 @@ bash cli/import-youtube.sh "<播放列表URL>" "动物兄弟 第五季" "科学"
 ```bash
 cd app
 brew install xcodegen
+# 个人构建可预填服务器地址，免每次手输（公开构建留空）：
+cp Local.example.xcconfig Local.xcconfig   # 然后填 CV_SERVER_HOST = 你的主机名（不带 https://）
 xcodegen generate
 open ChildVideo.xcodeproj
 ```
 
-首次启动在激活页填入你的 Worker 域名 + 家长 PIN 即可。分发到家庭设备见 [`app/README.md`](app/README.md)（Mac 直接 Run；iPhone/iPad 用免费 Apple ID + SideStore）。
+首次启动在激活页填入你的 **Worker 域名**（个人构建已由 `Local.xcconfig` 预填）+ **激活密钥**（`ACTIVATION_KEY`）即可。分发到家庭设备见 [`app/README.md`](app/README.md)（Mac 直接 Run；iPhone/iPad 用免费 Apple ID + SideStore）。
 
 ## 测试
 

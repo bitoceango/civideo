@@ -1,9 +1,13 @@
 import Foundation
 
 enum Config {
-    // 默认后端地址。开源版留空：首次启动时由家长在激活页填入自己的 Worker 域名。
-    // 自用可改成自己的地址，例如 "https://video.example.com"
-    static let defaultServer = ""
+    // 默认后端地址。公开构建留空：首次启动时由家长在激活页填入自己的 Worker 域名。
+    // 个人构建可在 app/Local.xcconfig 设 CV_SERVER_HOST（仅主机名）→ 构建期注入 Info.plist 预填（#22）。
+    static let defaultServer: String = {
+        guard let host = Bundle.main.object(forInfoDictionaryKey: "CVServerHost") as? String,
+              !host.isEmpty else { return "" }
+        return host.hasPrefix("http") ? host : "https://\(host)"
+    }()
 
     // 孩子昵称默认值（显示在主页问候里），家长可在 UserDefaults 改 cv.childName
     static let defaultChildName = "小朋友"
