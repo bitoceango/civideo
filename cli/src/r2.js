@@ -48,10 +48,14 @@ export async function uploadFile(client, bucket, key, filePath, contentType) {
 export async function getManifest(client, bucket) {
   try {
     const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: MANIFEST_KEY }));
-    return JSON.parse(await res.Body.transformToString());
+    const m = JSON.parse(await res.Body.transformToString());
+    // 向后兼容旧 manifest：补齐数组字段
+    if (!Array.isArray(m.videos)) m.videos = [];
+    if (!Array.isArray(m.audiobooks)) m.audiobooks = [];
+    return m;
   } catch (e) {
     if (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) {
-      return { version: 1, updatedAt: null, videos: [] };
+      return { version: 1, updatedAt: null, videos: [], audiobooks: [] };
     }
     throw e;
   }

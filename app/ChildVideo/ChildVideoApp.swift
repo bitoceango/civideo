@@ -8,6 +8,7 @@ struct ChildVideoApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(model)
+                .environmentObject(model.audio)
                 .task { await model.bootstrap() }
                 .preferredColorScheme(.dark)
                 .tint(Theme.accent)
@@ -21,6 +22,7 @@ struct ChildVideoApp: App {
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
+    @EnvironmentObject var audio: AudioController
 
     var body: some View {
         ZStack {
@@ -42,8 +44,16 @@ struct RootView: View {
                 BreakView(reason: reason)
                     .transition(.opacity)
             }
+
+            // 全局全屏听书播放器：仅在主壳态展开时覆盖（收起≠停播）
+            if case .library = model.route, audio.isExpanded {
+                AudioPlayerView()
+                    .transition(.move(edge: .bottom))
+                    .zIndex(2)
+            }
         }
         .animation(.easeInOut(duration: 0.25), value: model.route)
+        .animation(.easeInOut(duration: 0.3), value: audio.isExpanded)
     }
 }
 

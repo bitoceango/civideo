@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>视频 / 听书 分 Tab · 设计稿 · child-podcast</title>
+<style>
+  :root {
+    --accent-h: 196;
+    --accent: oklch(0.72 0.13 var(--accent-h));
+    --accent-bright: oklch(0.80 0.14 var(--accent-h));
+    --bg: oklch(0.17 0.012 265);
+    --bg-2: oklch(0.21 0.014 265);
+    --card: oklch(0.24 0.016 265);
+    --card-hi: oklch(0.28 0.018 265);
+    --line: oklch(0.32 0.015 265);
+    --text: oklch(0.96 0.005 265);
+    --muted: oklch(0.70 0.012 265);
+    --faint: oklch(0.55 0.01 265);
+    --good: oklch(0.78 0.15 150);
+    --warn: oklch(0.80 0.14 75);
+    --pink: oklch(0.72 0.15 10);
+    --radius: 20px;
+    --shadow: 0 18px 50px -18px oklch(0 0 0 / 0.7);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(1200px 800px at 50% -10%, var(--bg-2), var(--bg));
+    color: var(--text);
+    font-family: -apple-system, "SF Pro Text", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; line-height: 1.6; padding: 36px 24px 60px;
+  }
+  h1.page { font-size: 22px; font-weight: 800; text-align: center; margin-bottom: 4px; }
+  p.sub { text-align: center; color: var(--faint); font-size: 13.5px; margin-bottom: 30px; }
+  .stage { display: flex; gap: 30px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
+  .phone { width: 372px; height: 770px; border-radius: 42px; background: #000; padding: 11px; box-shadow: var(--shadow); flex: 0 0 auto; }
+  .screen { width: 100%; height: 100%; border-radius: 32px; overflow: hidden; background: var(--bg); position: relative; display: flex; flex-direction: column; }
+  .caption { text-align: center; color: var(--muted); font-size: 13px; margin-top: 14px; font-weight: 600; }
+  .caption span { color: var(--faint); font-weight: 400; }
+
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 22px 20px 10px; }
+  .avatar { width: 44px; height: 44px; border-radius: 14px; flex: 0 0 auto; background: linear-gradient(135deg, var(--accent-bright), oklch(0.78 0.12 150)); display: grid; place-items: center; font-weight: 800; color: oklch(0.2 0.03 230); font-size: 20px; }
+  .hi b { font-size: 18px; font-weight: 700; display: block; }
+  .hi small { color: var(--faint); font-size: 12px; }
+  .pill { margin-left: auto; font-size: 12px; font-weight: 600; padding: 6px 11px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; display: flex; gap: 6px; align-items: center; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+
+  .feed { flex: 1; overflow: hidden; }
+  .rowhead { display: flex; align-items: baseline; gap: 9px; padding: 14px 20px 9px; }
+  .rowhead h2 { font-size: 16.5px; font-weight: 800; }
+  .rowhead small { color: var(--faint); font-size: 12px; margin-left: auto; }
+  .track { display: flex; gap: 13px; overflow-x: auto; padding: 0 20px 4px; scrollbar-width: none; }
+  .track::-webkit-scrollbar { display: none; }
+
+  .vcard { flex: 0 0 auto; width: 168px; }
+  .vthumb { width: 168px; height: 100px; border-radius: 14px; position: relative; overflow: hidden; box-shadow: 0 10px 24px -12px #000; }
+  .vthumb .play { position: absolute; inset: 0; margin: auto; width: 40px; height: 40px; border-radius: 50%; background: oklch(1 0 0 / .16); border: 1.5px solid oklch(1 0 0 / .5); display: grid; place-items: center; }
+  .badge { position: absolute; top: 7px; left: 7px; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 7px; background: oklch(0 0 0 / .45); }
+  .prog { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--accent-bright); }
+  .progbg { position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: oklch(1 0 0 / .2); }
+  .vmeta { font-size: 13px; font-weight: 600; margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vmeta small { display: block; color: var(--faint); font-size: 11.5px; font-weight: 400; }
+
+  /* 学科宫格 */
+  .subjects { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 6px 20px 2px; }
+  .subj { text-align: center; }
+  .subj .ic { height: 54px; border-radius: 16px; display: grid; place-items: center; font-size: 24px; }
+  .subj small { font-size: 11.5px; color: var(--muted); display: block; margin-top: 5px; }
+
+  /* 听书：分类 chips + 书架 grid */
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 6px 20px 8px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: 0 0 auto; font-size: 12.5px; font-weight: 600; padding: 6px 13px; border-radius: 999px; background: var(--card); color: var(--muted); border: 1px solid var(--line); }
+  .chip.on { background: var(--accent); color: oklch(0.2 0.03 230); border-color: transparent; }
+  .shelf { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 6px 20px 10px; }
+  .book .cv { width: 100%; aspect-ratio: 3/4; border-radius: 13px; position: relative; overflow: hidden; box-shadow: 0 10px 22px -12px #000; display: flex; align-items: flex-end; padding: 8px; }
+  .book .cv .hp { position: absolute; top: 6px; left: 6px; font-size: 10px; background: oklch(0 0 0 / .4); padding: 1px 6px; border-radius: 999px; }
+  .book .cv b { font-size: 12px; font-weight: 700; text-shadow: 0 1px 6px #000; position: relative; z-index: 1; }
+  .book .t { font-size: 12px; font-weight: 600; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .book .t small { display: block; color: var(--faint); font-size: 10.5px; font-weight: 400; }
+  .bcard { flex: 0 0 auto; width: 116px; }
+  .bcover { width: 116px; height: 152px; border-radius: 14px; position: relative; overflow: hidden; box-shadow: 0 10px 24px -12px #000; display: flex; align-items: flex-end; padding: 9px; }
+  .bcover .hp { position: absolute; top: 7px; left: 7px; font-size: 10px; background: oklch(0 0 0 / .4); padding: 2px 7px; border-radius: 999px; }
+  .bcover b { font-size: 13px; font-weight: 700; text-shadow: 0 1px 6px #000; position: relative; z-index: 1; }
+  .bmeta { font-size: 12.5px; font-weight: 600; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bmeta small { display: block; color: var(--faint); font-size: 11px; font-weight: 400; }
+
+  /* 迷你播放条（跨 tab 常驻，听书在后台播时出现） */
+  .mini { margin: 0 10px 8px; background: var(--card-hi); border: 1px solid var(--line); border-radius: 16px; padding: 8px 10px; display: flex; align-items: center; gap: 11px; position: relative; box-shadow: 0 -6px 24px -14px #000; }
+  .mini .mart { width: 42px; height: 42px; border-radius: 10px; flex: 0 0 auto; }
+  .mini .mtitle b { font-size: 13.5px; font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+  .mini .mtitle small { color: var(--faint); font-size: 11px; }
+  .mini .mctrl { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+  .mini .ic { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; }
+  .mini .ic.main { background: var(--accent); color: oklch(0.2 0.03 230); }
+  .mini .mline { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; background: var(--accent-bright); border-radius: 999px; }
+
+  .tabbar { display: flex; border-top: 1px solid var(--line); background: var(--bg-2); }
+  .tabbar a { flex: 1; text-align: center; padding: 9px 0 14px; color: var(--faint); font-size: 10.5px; }
+  .tabbar a.on { color: var(--accent-bright); }
+  .tabbar a div { font-size: 19px; margin-bottom: 1px; }
+
+  /* 全屏听书播放器 */
+  .player { display: flex; flex-direction: column; height: 100%; padding: 18px 26px 26px; align-items: center; }
+  .pbar { width: 100%; display: flex; align-items: center; gap: 10px; }
+  .pbar .ic { width: 42px; height: 42px; border-radius: 13px; background: var(--card); display: grid; place-items: center; font-size: 18px; }
+  .pbar .ptitle { flex: 1; text-align: center; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .pcover { width: 232px; height: 232px; border-radius: 24px; margin: 40px 0 26px; box-shadow: 0 26px 60px -22px #000; display: grid; place-items: center; font-size: 54px; }
+  .ptitles { text-align: center; }
+  .ptitles b { font-size: 21px; font-weight: 800; }
+  .ptitles small { display: block; color: var(--faint); font-size: 13px; margin-top: 5px; }
+  .pscrub { width: 100%; margin-top: auto; }
+  .pscrub .bar { height: 6px; border-radius: 999px; background: var(--line); position: relative; }
+  .pscrub .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 38%; background: var(--accent-bright); border-radius: 999px; }
+  .pscrub .bar .knob { position: absolute; left: 38%; top: 50%; transform: translate(-50%, -50%); width: 15px; height: 15px; border-radius: 50%; background: #fff; }
+  .pscrub .tt { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 7px; }
+  .ptransport { display: flex; align-items: center; gap: 26px; margin: 24px 0 6px; }
+  .ptransport .ic { font-size: 24px; width: 52px; text-align: center; }
+  .ptransport .big { width: 80px; height: 80px; border-radius: 50%; background: var(--accent); color: oklch(0.2 0.03 230); display: grid; place-items: center; font-size: 30px; }
+  .sleep { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+  .g1 { background: linear-gradient(135deg, oklch(0.5 0.13 30), oklch(0.3 0.1 350)); }
+  .g2 { background: linear-gradient(135deg, oklch(0.5 0.13 160), oklch(0.3 0.1 220)); }
+  .g3 { background: linear-gradient(135deg, oklch(0.52 0.13 80), oklch(0.32 0.1 40)); }
+  .g4 { background: linear-gradient(135deg, oklch(0.5 0.13 280), oklch(0.3 0.1 320)); }
+  .g5 { background: linear-gradient(135deg, oklch(0.5 0.13 230), oklch(0.32 0.1 190)); }
+  .g6 { background: linear-gradient(135deg, oklch(0.5 0.14 130), oklch(0.32 0.1 90)); }
+  .shade { position: absolute; inset: 0; background: linear-gradient(to top, oklch(0 0 0 / .55), transparent 55%); }
+  .sub-ic.a { background: oklch(0.4 0.1 196); } .sub-ic.b { background: oklch(0.4 0.1 30); }
+  .sub-ic.c { background: oklch(0.4 0.1 150); } .sub-ic.d { background: oklch(0.4 0.1 300); }
+</style>
+</head>
+<body>
+  <h1 class="page">视频 / 听书 分 Tab · 设计稿</h1>
+  <p class="sub">底部 tab 把「看」和「听」分开，各自独立浏览 · 听书在后台播时，迷你条跨 tab 常驻（边看视频边听书）</p>
+
+  <div class="stage">
+
+    <!-- 1) 首页（视频 tab） -->
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="topbar">
+          <div class="avatar">乐</div>
+          <div class="hi"><b>下午好，乐乐</b><small>今天想看点什么呢？</small></div>
+          <div class="pill"><span class="dot"></span>还可 38 分钟</div>
+        </div>
+        <div class="feed">
+          <div class="subjects">
+            <div class="subj"><div class="ic sub-ic a">🔬</div><small>科学</small></div>
+            <div class="subj"><div class="ic sub-ic b">🦁</div><small>动物</small></div>
+            <div class="subj"><div class="ic sub-ic c">🔤</div><small>英语</small></div>
+            <div class="subj"><div class="ic sub-ic d">🎨</div><small>艺术</small></div>
+          </div>
+          <div class="rowhead"><h2>继续观看</h2></div>
+          <div class="track">
+            <div class="vcard"><div class="vthumb g2"><div class="shade"></div><div class="badge">第 06 集</div><div class="play">▶</div><div class="progbg"></div><div class="prog" style="width:62%"></div></div><div class="vmeta">动物兄弟<small>还剩 8 分钟</small></div></div>
+            <div class="vcard"><div class="vthumb g3"><div class="shade"></div><div class="play">▶</div><div class="progbg"></div><div class="prog" style="width:30%"></div></div><div class="vmeta">恐龙世界<small>还剩 14 分钟</small></div></div>
+          </div>
+          <div class="rowhead"><h2>动物兄弟 第五季</h2><small>共 20 集</small></div>
+          <div class="track">
+            <div class="vcard"><div class="vthumb g5"><div class="shade"></div><div class="badge">第 01 集</div><div class="play">▶</div></div><div class="vmeta">北极企鹅之谜</div></div>
+            <div class="vcard"><div class="vthumb g2"><div class="shade"></div><div class="badge">第 02 集</div><div class="play">▶</div></div><div class="vmeta">虎之庙</div></div>
+          </div>
+        </div>
+        <!-- 听书在后台播：迷你条跨 tab 常驻 -->
+        <div class="mini">
+          <div class="mart g1"></div>
+          <div class="mtitle"><b>西游记故事 · 第二回</b><small>🎧 听书中</small></div>
+          <div class="mctrl"><div class="ic main">⏸</div></div>
+          <div class="mline" style="width:38%"></div>
+        </div>
+        <div class="tabbar">
+          <a class="on"><div>🏠</div>首页</a>
+          <a><div>🔖</div>分类</a>
+          <a><div>🎧</div>听书</a>
+          <a><div>👤</div>我的</a>
+        </div>
+      </div></div>
+      <div class="caption">① 首页（视频 Tab）<span> · 纯视频：学科入口 + 继续观看 + 系列</span></div>
+    </div>
+
+    <!-- 2) 听书 tab -->
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="topbar">
+          <div class="avatar">乐</div>
+          <div class="hi"><b>听书</b><small>挑一本，边玩边听</small></div>
+          <div class="pill"><span class="dot"></span>还可 38 分钟</div>
+        </div>
+        <div class="feed">
+          <div class="rowhead"><h2>继续收听</h2></div>
+          <div class="track">
+            <div class="bcard"><div class="bcover g1"><div class="shade"></div><div class="hp">🎧</div><b>西游记故事</b></div><div class="bmeta">第二回<small>听到 03:20</small></div></div>
+            <div class="bcard"><div class="bcover g4"><div class="shade"></div><div class="hp">🎧</div><b>睡前童话</b></div><div class="bmeta">小红帽<small>听到 01:05</small></div></div>
+          </div>
+          <div class="chips">
+            <div class="chip on">全部</div><div class="chip">国学</div><div class="chip">故事</div><div class="chip">科普</div><div class="chip">英语</div>
+          </div>
+          <div class="shelf">
+            <div class="book"><div class="cv g1"><div class="shade"></div><div class="hp">🎧</div><b>西游记故事</b></div><div class="t">西游记故事<small>24 章</small></div></div>
+            <div class="book"><div class="cv g3"><div class="shade"></div><div class="hp">🎧</div><b>成语故事</b></div><div class="t">成语故事<small>30 章</small></div></div>
+            <div class="book"><div class="cv g6"><div class="shade"></div><div class="hp">🎧</div><b>十万个为什么</b></div><div class="t">十万个为什么<small>40 章</small></div></div>
+            <div class="book"><div class="cv g4"><div class="shade"></div><div class="hp">🎧</div><b>睡前童话</b></div><div class="t">睡前童话<small>12 章</small></div></div>
+            <div class="book"><div class="cv g5"><div class="shade"></div><div class="hp">🎧</div><b>唐诗三百首</b></div><div class="t">唐诗三百首<small>20 章</small></div></div>
+            <div class="book"><div class="cv g2"><div class="shade"></div><div class="hp">🎧</div><b>三字经</b></div><div class="t">三字经<small>8 章</small></div></div>
+          </div>
+        </div>
+        <div class="mini">
+          <div class="mart g1"></div>
+          <div class="mtitle"><b>西游记故事 · 第二回</b><small>🎧 听书中</small></div>
+          <div class="mctrl"><div class="ic">⏮</div><div class="ic main">⏸</div><div class="ic">⏭</div></div>
+          <div class="mline" style="width:38%"></div>
+        </div>
+        <div class="tabbar">
+          <a><div>🏠</div>首页</a>
+          <a><div>🔖</div>分类</a>
+          <a class="on"><div>🎧</div>听书</a>
+          <a><div>👤</div>我的</a>
+        </div>
+      </div></div>
+      <div class="caption">② 听书 Tab <span>· 独立书架：继续收听 + 分类 + 书格子</span></div>
+    </div>
+
+    <!-- 3) 全屏听书播放器 -->
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="player">
+          <div class="pbar"><div class="ic">▾</div><div class="ptitle">西游记故事</div><div class="ic">⋯</div></div>
+          <div class="pcover g1">🎧</div>
+          <div class="ptitles"><b>第二回 · 悟空拜师</b><small>第 2 章 / 共 24 章 · 西游记故事</small></div>
+          <div class="pscrub">
+            <div class="bar"><i></i><div class="knob"></div></div>
+            <div class="tt"><span>03:20</span><span>08:45</span></div>
+          </div>
+          <div class="ptransport">
+            <div class="ic">⏮</div><div class="ic">⟲15</div><div class="big">⏸</div><div class="ic">15⟳</div><div class="ic">⏭</div>
+          </div>
+          <div class="sleep">🌙 睡眠定时 · 20 分钟后停止</div>
+        </div>
+      </div></div>
+      <div class="caption">③ 全屏听书播放器 <span>· 章节切换 / ±15s / 睡眠定时</span></div>
+    </div>
+
+  </div>
+</body>
+</html>

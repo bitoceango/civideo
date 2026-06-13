@@ -13,7 +13,11 @@ const MANIFEST_KEY = 'manifest.json';
 const json = (data, status = 200, extra = {}) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', ...extra },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'access-control-allow-origin': '*',   // Web/Tauri 客户端跨域 fetch（数据仍需令牌）
+      ...extra,
+    },
   });
 
 async function sha256Hex(text) {
@@ -130,7 +134,7 @@ async function handleActivate(request, env) {
 
 async function handleLibrary(env) {
   const obj = await env.BUCKET.get(MANIFEST_KEY);
-  if (!obj) return json({ version: 1, videos: [] });
+  if (!obj) return json({ version: 1, videos: [], audiobooks: [] });
   const manifest = JSON.parse(await obj.text());
   // 给客户端补上可直接请求的媒体地址（走本 Worker 鉴权网关）
   const videos = (manifest.videos || []).map((v) => ({
@@ -138,13 +142,25 @@ async function handleLibrary(env) {
     videoUrl: `/media/${v.id}/video.mp4`,
     posterUrl: `/media/${v.id}/poster.jpg`,
   }));
-  return json({ version: manifest.version || 1, updatedAt: manifest.updatedAt, videos });
+  // 听书：章节音频与封面也走同一鉴权+缓存网关（media URL 直接映射 R2 key）
+  const audiobooks = (manifest.audiobooks || []).map((a) => ({
+    ...a,
+    coverUrl: a.cover ? `/media/${a.cover}` : null,
+    chapters: (a.chapters || []).map((c) => ({ ...c, audioUrl: `/media/${c.audio}` })),
+  }));
+  return json({ version: manifest.version || 1, updatedAt: manifest.updatedAt, videos, audiobooks });
+}
+
+function contentTypeOf(key) {
+  if (key.endsWith('.mp4')) return 'video/mp4';
+  if (key.endsWith('.mp3')) return 'audio/mpeg';
+  if (key.endsWith('.png')) return 'image/png';
+  return 'image/jpeg';
 }
 
 // 媒体网关：支持 HTTP Range + Cloudflare 边缘缓存（免费）。
 // 令牌校验已在上层完成；缓存键只用 path（不含令牌），所有已授权设备共享同一份边缘缓存。
-async function handleMedia(env, ctx, id, file, request) {
-  const key = `videos/${id}/${file}`;
+async function handleMedia(env, ctx, key, request) {
   const range = request.headers.get('Range');
   const cache = caches.default;
 
@@ -168,12 +184,13 @@ async function handleMedia(env, ctx, id, file, request) {
   if (cached) {
     const h = new Headers(cached.headers);
     h.set('x-edge-cache', 'HIT');
+    h.set('access-control-allow-origin', '*');
     return new Response(cached.body, { status: cached.status, headers: h });
   }
 
   // 2) 未命中：后台把"全量 200"写入缓存（下次即命中），本次仍立即回源 R2
   const cacheKey = new Request(cacheUrl.toString(), { method: 'GET' });
-  ctx.waitUntil(populateEdgeCache(env, cache, cacheKey, key, file));
+  ctx.waitUntil(populateEdgeCache(env, cache, cacheKey, key));
 
   // 3) 本次请求按 Range（或全量）从 R2 取回，不等缓存写入
   let r2Range;
@@ -196,8 +213,9 @@ async function handleMedia(env, ctx, id, file, request) {
   headers.set('accept-ranges', 'bytes');
   headers.set('cache-control', 'public, max-age=86400, immutable'); // 内容按 id 寻址，永不变
   headers.set('x-edge-cache', 'MISS');
+  headers.set('access-control-allow-origin', '*');
   if (!headers.has('content-type')) {
-    headers.set('content-type', file.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg');
+    headers.set('content-type', contentTypeOf(key));
   }
 
   if (obj.range && range) {
@@ -215,14 +233,14 @@ async function handleMedia(env, ctx, id, file, request) {
 
 // 把整段视频写入 Cloudflare 边缘缓存（流式，不全量驻留内存）。
 // 超 512MB 等不可缓存情况会抛错，吞掉即可——照常回源不影响播放。
-async function populateEdgeCache(env, cache, cacheKey, key, file) {
+async function populateEdgeCache(env, cache, cacheKey, key) {
   try {
     if (await cache.match(cacheKey)) return; // 已有人写过，避免重复回源
     const full = await env.BUCKET.get(key);
     if (!full) return;
     const headers = new Headers();
     full.writeHttpMetadata(headers);
-    headers.set('content-type', headers.get('content-type') || (file.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg'));
+    headers.set('content-type', headers.get('content-type') || contentTypeOf(key));
     headers.set('content-length', String(full.size));
     headers.set('accept-ranges', 'bytes');
     headers.set('etag', full.httpEtag);
@@ -377,7 +395,12 @@ export default {
 
       const media = path.match(/^\/media\/([A-Za-z0-9_-]+)\/(video\.mp4|poster\.jpg)$/);
       if (media && request.method === 'GET') {
-        return await handleMedia(env, ctx, media[1], media[2], request);
+        return await handleMedia(env, ctx, `videos/${media[1]}/${media[2]}`, request);
+      }
+      // 听书媒体：章节音频 ch-N.mp3 与封面 cover.jpg/png（同一鉴权+边缘缓存网关）
+      const audioMedia = path.match(/^\/media\/audiobooks\/([A-Za-z0-9_-]+)\/(ch-\d+\.mp3|cover\.(?:jpg|png))$/);
+      if (audioMedia && request.method === 'GET') {
+        return await handleMedia(env, ctx, `audiobooks/${audioMedia[1]}/${audioMedia[2]}`, request);
       }
 
       if (path === '/api/progress' && request.method === 'GET') {
