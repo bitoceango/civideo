@@ -26,14 +26,15 @@ struct ActivationView: View {
                 VStack(spacing: 14) {
                     field(title: "服务器地址", text: $server, placeholder: "https://你的-worker-域名")
                     field(title: "设备名称", text: $deviceName, placeholder: "")
-                    SecureField("", text: $pin, prompt: Text("家长密码").foregroundStyle(Theme.faint))
+                    SecureField("", text: $pin, prompt: Text("家长密码 / 激活密钥").foregroundStyle(Theme.faint))
                         .textFieldStyle(.plain)
                         .padding(14)
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
                         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line, lineWidth: 1))
                         .foregroundStyle(Theme.text)
+                        // #17：放开数字键盘，支持长随机激活密钥（ACTIVATION_KEY）
                         #if os(iOS)
-                        .keyboardType(.numberPad)
+                        .autocorrectionDisabled().textInputAutocapitalization(.never)
                         #endif
                 }
                 .frame(maxWidth: 380)

@@ -70,7 +70,8 @@ cp wrangler.example.jsonc wrangler.jsonc      # 填入你的域名 / bucket
 npx wrangler r2 bucket create child-video      # 建 R2 桶（控制台也可）
 npx wrangler d1 create child-video-db          # 建 D1，把返回的 database_id 填进 wrangler.jsonc
 npx wrangler d1 execute child-video-db --remote --file=./schema.sql
-npx wrangler secret put PARENT_PIN             # 设家长 PIN
+npx wrangler secret put ACTIVATION_KEY         # 设备激活密钥：长随机串（生成：openssl rand -hex 24）；不设则回退用 PARENT_PIN
+npx wrangler secret put PARENT_PIN             # 家长门 PIN：改每日时长/允许时段规则用，可短数字
 npx wrangler deploy                            # 部署 + 自动绑定自定义域名
 ```
 

@@ -58,7 +58,13 @@ function checkRules(device, body) {
 }
 
 async function handleActivate(request, env) {
-  if (!env.PARENT_PIN) return json({ error: 'server_not_configured' }, 500);
+  // 激活密钥与家长 PIN 分离（#17）：激活优先用 ACTIVATION_KEY（长随机串）；
+  // 未设则回退 PARENT_PIN 兼容老部署。PARENT_PIN 仍用于「家长门」改规则（见 handleSaveRules）。
+  const activationSecret = env.ACTIVATION_KEY || env.PARENT_PIN;
+  if (!activationSecret) return json({ error: 'server_not_configured' }, 500);
+  if (!env.ACTIVATION_KEY && env.PARENT_PIN) {
+    console.warn('ACTIVATION_KEY 未设置，激活回退使用 PARENT_PIN；建议设置长随机 ACTIVATION_KEY 以分离激活密钥与家长 PIN');
+  }
 
   // 激活限流（防 PIN 暴力破解）：同一来源 IP 连续失败 maxFails 次后锁定 lockMs，
   // 期间一律 429。计数持久化在 D1（实例漂移不绕过）；成功或锁定窗口过期后重置。
@@ -85,7 +91,8 @@ async function handleActivate(request, env) {
     return json({ error: 'bad_json' }, 400);
   }
 
-  if (!body?.pin || String(body.pin) !== String(env.PARENT_PIN)) {
+  const presented = body?.key ?? body?.pin; // 兼容旧客户端的 pin 字段
+  if (!presented || String(presented) !== String(activationSecret)) {
     // 记一次失败（上一次锁定已过期则从头计）
     let fails = att && att.locked_until > 0 ? 0 : att?.fails || 0;
     fails += 1;
