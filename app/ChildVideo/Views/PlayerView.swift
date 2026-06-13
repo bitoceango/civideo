@@ -23,7 +23,12 @@ final class PlayerEngine: ObservableObject {
         statusCancellable = item.publisher(for: \.status)
             .receive(on: RunLoop.main)
             .sink { [weak self] status in
-                guard let self, status == .readyToPlay else { return }
+                guard let self else { return }
+                if status == .failed {
+                    print("[Player] item failed:", item.error?.localizedDescription ?? "unknown")
+                    return
+                }
+                guard status == .readyToPlay else { return }
                 self.duration = item.duration.seconds.isFinite ? item.duration.seconds : 0
                 if startAt > 1 { self.seek(to: startAt) }
                 self.play()

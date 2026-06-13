@@ -18,6 +18,7 @@ struct PosterCard: View {
                 meta
             }
             .frame(width: width)
+            .contentShape(Rectangle())   // 整张卡片（含透明渐变区）都可点，修 macOS 鼠标穿透
         }
         .buttonStyle(.plain)
         .scaleEffect(hovering ? 1.03 : 1)
@@ -36,6 +37,7 @@ struct PosterCard: View {
             LinearGradient(colors: [.black.opacity(0.55), .clear],
                            startPoint: .bottom, endPoint: .center)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
+                .allowsHitTesting(false)
 
             VStack {
                 HStack {
@@ -82,9 +84,11 @@ struct PosterCard: View {
                     .frame(height: 4)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 16))
+                .allowsHitTesting(false)
             }
         }
         .frame(width: width, height: width / aspect)
+        .contentShape(Rectangle())
         .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
     }
 

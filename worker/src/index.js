@@ -84,10 +84,41 @@ async function handleLibrary(env) {
   return json({ version: manifest.version || 1, updatedAt: manifest.updatedAt, videos });
 }
 
-// 媒体网关：支持 HTTP Range，便于拖动进度与边下边播
-async function handleMedia(env, id, file, request) {
+// 媒体网关：支持 HTTP Range + Cloudflare 边缘缓存（免费）。
+// 令牌校验已在上层完成；缓存键只用 path（不含令牌），所有已授权设备共享同一份边缘缓存。
+async function handleMedia(env, ctx, id, file, request) {
   const key = `videos/${id}/${file}`;
   const range = request.headers.get('Range');
+  const cache = caches.default;
+
+  // 取当前版本(etag)：HEAD 很便宜(无出口流量)，把 etag 放进缓存键，
+  // 这样同 id 覆盖视频后 etag 变化→缓存键变化→自动用新内容，旧缓存自然过期。
+  const head = await env.BUCKET.head(key);
+  if (!head) return json({ error: 'not_found' }, 404);
+  const ver = head.etag;
+
+  // 规范化缓存键（用 path + ?v=etag，保留 Range 让 match 自动切片）
+  const cacheUrl = new URL(request.url);
+  cacheUrl.search = '';
+  cacheUrl.searchParams.set('v', ver);
+  const matchReq = new Request(cacheUrl.toString(), {
+    method: 'GET',
+    headers: range ? { Range: range } : {},
+  });
+
+  // 1) 先查边缘缓存：命中时 match 会按 Range 自动返回 206 / 全量 200
+  const cached = await cache.match(matchReq);
+  if (cached) {
+    const h = new Headers(cached.headers);
+    h.set('x-edge-cache', 'HIT');
+    return new Response(cached.body, { status: cached.status, headers: h });
+  }
+
+  // 2) 未命中：后台把"全量 200"写入缓存（下次即命中），本次仍立即回源 R2
+  const cacheKey = new Request(cacheUrl.toString(), { method: 'GET' });
+  ctx.waitUntil(populateEdgeCache(env, cache, cacheKey, key, file));
+
+  // 3) 本次请求按 Range（或全量）从 R2 取回，不等缓存写入
   let r2Range;
   if (range) {
     const m = range.match(/bytes=(\d*)-(\d*)/);
@@ -99,7 +130,6 @@ async function handleMedia(env, id, file, request) {
       else if (end !== undefined) r2Range = { suffix: end };
     }
   }
-
   const obj = await env.BUCKET.get(key, r2Range ? { range: r2Range } : undefined);
   if (!obj) return json({ error: 'not_found' }, 404);
 
@@ -107,7 +137,8 @@ async function handleMedia(env, id, file, request) {
   obj.writeHttpMetadata(headers);
   headers.set('etag', obj.httpEtag);
   headers.set('accept-ranges', 'bytes');
-  headers.set('cache-control', 'private, max-age=3600');
+  headers.set('cache-control', 'public, max-age=86400, immutable'); // 内容按 id 寻址，永不变
+  headers.set('x-edge-cache', 'MISS');
   if (!headers.has('content-type')) {
     headers.set('content-type', file.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg');
   }
@@ -123,6 +154,26 @@ async function handleMedia(env, id, file, request) {
   }
   headers.set('content-length', String(obj.size));
   return new Response(obj.body, { status: 200, headers });
+}
+
+// 把整段视频写入 Cloudflare 边缘缓存（流式，不全量驻留内存）。
+// 超 512MB 等不可缓存情况会抛错，吞掉即可——照常回源不影响播放。
+async function populateEdgeCache(env, cache, cacheKey, key, file) {
+  try {
+    if (await cache.match(cacheKey)) return; // 已有人写过，避免重复回源
+    const full = await env.BUCKET.get(key);
+    if (!full) return;
+    const headers = new Headers();
+    full.writeHttpMetadata(headers);
+    headers.set('content-type', headers.get('content-type') || (file.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg'));
+    headers.set('content-length', String(full.size));
+    headers.set('accept-ranges', 'bytes');
+    headers.set('etag', full.httpEtag);
+    headers.set('cache-control', 'public, max-age=86400, immutable');
+    await cache.put(cacheKey, new Response(full.body, { status: 200, headers }));
+  } catch (e) {
+    // 不可缓存：忽略
+  }
 }
 
 async function handleGetProgress(env, device, url) {
@@ -226,7 +277,7 @@ async function handlePostProgress(request, env, device) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -259,7 +310,7 @@ export default {
 
       const media = path.match(/^\/media\/([A-Za-z0-9_-]+)\/(video\.mp4|poster\.jpg)$/);
       if (media && request.method === 'GET') {
-        return await handleMedia(env, media[1], media[2], request);
+        return await handleMedia(env, ctx, media[1], media[2], request);
       }
 
       if (path === '/api/progress' && request.method === 'GET') {

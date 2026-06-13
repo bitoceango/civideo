@@ -39,7 +39,14 @@ final class PlayerLayerView: NSView {
         layer?.addSublayer(playerLayer)
     }
     required init?(coder: NSCoder) { fatalError() }
-    override func layout() { super.layout(); playerLayer.frame = bounds }
+    override func layout() {
+        super.layout()
+        // 关闭隐式动画，避免每次布局对 playerLayer.frame 触发动画造成画面周期性抖动
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        playerLayer.frame = bounds
+        CATransaction.commit()
+    }
 }
 #endif
 
