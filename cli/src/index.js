@@ -9,6 +9,8 @@ import { promisify } from 'node:util';
 import { loadConfig } from './config.js';
 import { buildPlan, ffprobe, extractMeta } from './probe.js';
 import { runFfmpeg, makePoster } from './media.js';
+import { parseEbook, cleanAndSegment } from './ebook.js';
+import { createTtsEngine, ttsDoctor, DEFAULT_SPEAKER } from './tts.js';
 import {
   makeClient,
   checkBucket,
@@ -176,20 +178,159 @@ program
   });
 
 program
+  .command('audiobook')
+  .description('把电子书（EPUB/TXT/MD）转成听书：按章 TTS 合成 → 上传 R2 → 更新 manifest')
+  .argument('<file>', '电子书文件路径（.epub/.txt/.md）')
+  .option('--title <title>', '书名（缺省用电子书内标题/文件名）')
+  .option('--author <author>', '作者（缺省用电子书内作者）')
+  .option('--category <category>', '学科/分类')
+  .option('--id <id>', '指定 ID（同 ID 重传即覆盖，幂等）')
+  .option('--tts <engine>', 'TTS 引擎', 'doubao')
+  .option('--speaker <speaker>', `音色（默认 ${DEFAULT_SPEAKER}）`, DEFAULT_SPEAKER)
+  .option('--seg-chars <n>', '单段最大字数', '300')
+  .option('--dry-run', '只解析并输出章节/字数/预计时长/成本估算，不合成不上传')
+  .option('--json', 'JSON 输出')
+  .action(async (file, opts) => {
+    const json = !!opts.json;
+    const absFile = path.resolve(file);
+    try {
+      await fs.access(absFile);
+    } catch {
+      fail(EXIT.FAIL, `文件不存在：${absFile}`, json);
+    }
+
+    let book;
+    try {
+      book = await parseEbook(absFile);
+    } catch (e) {
+      fail(EXIT.FAIL, `电子书解析失败：${e.message}`, json);
+    }
+
+    const title = opts.title || book.title;
+    const author = opts.author ?? book.author ?? null;
+    const segChars = Number(opts.segChars) || 300;
+
+    // 章节清洗分段 + 统计
+    const chapters = book.chapters
+      .map((c, i) => {
+        const segments = cleanAndSegment(c.text, segChars);
+        return { idx: i + 1, title: c.title, segments, chars: segments.reduce((n, s) => n + s.length, 0) };
+      })
+      .filter((c) => c.chars > 0);
+    if (chapters.length === 0) fail(EXIT.FAIL, '没有可合成的正文', json);
+
+    const totalChars = chapters.reduce((n, c) => n + c.chars, 0);
+    const estSec = Math.round(totalChars / 4); // 中文约 4 字/秒
+
+    if (opts.dryRun) {
+      emit(
+        json,
+        { ok: true, dryRun: true, title, author, totalChars, estDurationSec: estSec,
+          chapters: chapters.map((c) => ({ idx: c.idx, title: c.title, chars: c.chars, segments: c.segments.length })) },
+        `书名：${title}${author ? `（${author}）` : ''}\n` +
+          `章节数：${chapters.length}　总字数：${totalChars}　预计时长：约 ${fmtDuration(estSec)}\n` +
+          chapters.map((c) => `  ${c.idx}. ${c.title}  ${c.chars}字 / ${c.segments.length}段`).join('\n') +
+          `\n（成本：豆包按字符计费，约 ${(totalChars / 10000).toFixed(2)} 万字，单价以火山控制台为准）`,
+      );
+      return;
+    }
+
+    // 真跑前先验 TTS 密钥与 R2 配置，避免白合成
+    const apiKey = process.env.DOUBAO_TTS_API_KEY;
+    if (opts.tts === 'doubao' && !apiKey) {
+      fail(EXIT.CONFIG, '缺少环境变量 DOUBAO_TTS_API_KEY（豆包语音新版控制台 API Key）', json);
+    }
+    const cfg = requireConfig(json);
+
+    let engine;
+    try {
+      engine = createTtsEngine(opts.tts, { apiKey, speaker: opts.speaker });
+    } catch (e) {
+      fail(e.isConfig ? EXIT.CONFIG : EXIT.FAIL, e.message, json);
+    }
+
+    const id = opts.id || `a${crypto.randomBytes(5).toString('hex')}`;
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cpv-ab-'));
+    try {
+      const client = makeClient(cfg);
+      const chapterEntries = [];
+      for (const c of chapters) {
+        if (!json) console.error(`合成第 ${c.idx}/${chapters.length} 章：${c.title}（${c.chars}字）`);
+        const mp3 = await engine.synthesize(c.segments);
+        const chFile = path.join(workDir, `ch-${c.idx}.mp3`);
+        await fs.writeFile(chFile, mp3);
+        const meta = extractMeta(await ffprobe(chFile));
+        const key = `audiobooks/${id}/ch-${c.idx}.mp3`;
+        await uploadFile(client, cfg.bucket, key, chFile, 'audio/mpeg');
+        chapterEntries.push({ idx: c.idx, title: c.title, audio: key, durationSec: meta.durationSec });
+      }
+
+      // 封面（若 EPUB 自带）
+      let cover = null;
+      if (book.cover?.data?.length) {
+        const ext = (book.cover.type || '').includes('png') ? 'png' : 'jpg';
+        const coverFile = path.join(workDir, `cover.${ext}`);
+        await fs.writeFile(coverFile, book.cover.data);
+        cover = `audiobooks/${id}/cover.${ext}`;
+        await uploadFile(client, cfg.bucket, cover, coverFile, book.cover.type || 'image/jpeg');
+      }
+
+      const totalDurationSec = chapterEntries.reduce((n, c) => n + c.durationSec, 0);
+      const now = new Date().toISOString();
+      const entry = {
+        id,
+        title,
+        author,
+        cover,
+        category: opts.category ?? null,
+        chapters: chapterEntries,
+        totalDurationSec,
+        createdAt: now,
+        updatedAt: now,
+        source: { format: path.extname(absFile).slice(1), originalName: path.basename(absFile), engine: opts.tts, speaker: opts.speaker },
+      };
+
+      const manifest = await getManifest(client, cfg.bucket);
+      const existing = manifest.audiobooks.findIndex((a) => a.id === id);
+      if (existing >= 0) {
+        entry.createdAt = manifest.audiobooks[existing].createdAt;
+        manifest.audiobooks[existing] = entry;
+      } else {
+        manifest.audiobooks.push(entry);
+      }
+      await putManifest(client, cfg.bucket, manifest);
+
+      emit(
+        json,
+        { ok: true, id, entry, manifestAudiobooks: manifest.audiobooks.length },
+        `听书已生成：${title}（id=${id}，${chapterEntries.length} 章，总时长 ${fmtDuration(totalDurationSec)}）\n` +
+          `播放列表现有 ${manifest.audiobooks.length} 本听书，播放器刷新即可看到。`,
+      );
+    } catch (e) {
+      fail(EXIT.FAIL, e.message, json);
+    } finally {
+      await fs.rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+program
   .command('list')
-  .description('列出播放列表中的所有视频')
+  .description('列出播放列表中的所有视频与听书')
   .option('--json', 'JSON 输出')
   .action(async (opts) => {
     const json = !!opts.json;
     const cfg = requireConfig(json);
     try {
       const manifest = await getManifest(makeClient(cfg), cfg.bucket);
-      emit(json, { ok: true, updatedAt: manifest.updatedAt, videos: manifest.videos },
-        manifest.videos.length === 0
-          ? '播放列表为空'
-          : manifest.videos
-              .map((v) => `${v.id}  ${v.series ? `[${v.series}] ` : ''}${v.title}  (${fmtDuration(v.durationSec)})`)
-              .join('\n'));
+      const vLines = manifest.videos.map(
+        (v) => `${v.id}  📹 ${v.series ? `[${v.series}] ` : ''}${v.title}  (${fmtDuration(v.durationSec)})`,
+      );
+      const aLines = manifest.audiobooks.map(
+        (a) => `${a.id}  🎧 ${a.title}${a.author ? `（${a.author}）` : ''}  ${a.chapters.length}章/${fmtDuration(a.totalDurationSec)}`,
+      );
+      const lines = [...vLines, ...aLines];
+      emit(json, { ok: true, updatedAt: manifest.updatedAt, videos: manifest.videos, audiobooks: manifest.audiobooks },
+        lines.length === 0 ? '播放列表为空' : lines.join('\n'));
     } catch (e) {
       fail(EXIT.FAIL, e.message, json);
     }
@@ -197,8 +338,8 @@ program
 
 program
   .command('remove')
-  .description('删除一个视频（R2 对象 + 播放列表条目）')
-  .argument('<id>', '视频 ID')
+  .description('删除一个视频或听书（R2 对象 + 播放列表条目）')
+  .argument('<id>', '视频 ID（v 开头）或听书 ID（a 开头）')
   .option('--json', 'JSON 输出')
   .action(async (id, opts) => {
     const json = !!opts.json;
@@ -206,15 +347,18 @@ program
     try {
       const client = makeClient(cfg);
       const manifest = await getManifest(client, cfg.bucket);
-      const before = manifest.videos.length;
-      manifest.videos = manifest.videos.filter((v) => v.id !== id);
-      if (manifest.videos.length === before) {
-        fail(EXIT.FAIL, `播放列表中没有 id=${id} 的视频`, json);
+      const isVideo = manifest.videos.some((v) => v.id === id);
+      const isAudiobook = manifest.audiobooks.some((a) => a.id === id);
+      if (!isVideo && !isAudiobook) {
+        fail(EXIT.FAIL, `播放列表中没有 id=${id} 的视频或听书`, json);
       }
-      const deletedObjects = await deletePrefix(client, cfg.bucket, `videos/${id}/`);
+      const prefix = isVideo ? `videos/${id}/` : `audiobooks/${id}/`;
+      if (isVideo) manifest.videos = manifest.videos.filter((v) => v.id !== id);
+      else manifest.audiobooks = manifest.audiobooks.filter((a) => a.id !== id);
+      const deletedObjects = await deletePrefix(client, cfg.bucket, prefix);
       await putManifest(client, cfg.bucket, manifest);
-      emit(json, { ok: true, id, deletedObjects, manifestVideos: manifest.videos.length },
-        `已删除 ${id}（${deletedObjects} 个对象），播放列表剩 ${manifest.videos.length} 个视频`);
+      emit(json, { ok: true, id, type: isVideo ? 'video' : 'audiobook', deletedObjects },
+        `已删除 ${isVideo ? '视频' : '听书'} ${id}（${deletedObjects} 个对象），剩 ${manifest.videos.length} 视频 / ${manifest.audiobooks.length} 听书`);
     } catch (e) {
       fail(EXIT.FAIL, e.message, json);
     }
@@ -243,10 +387,18 @@ program
         status.r2 = `failed: ${e.message}`;
       }
     }
+    // TTS 为可选能力（仅 audiobook 需要）：有 key 才探测，不计入整体 ok
+    const ttsKey = process.env.DOUBAO_TTS_API_KEY;
+    if (ttsKey) {
+      const r = await ttsDoctor('doubao', { apiKey: ttsKey, speaker: DEFAULT_SPEAKER });
+      status.tts = r.ok ? 'ok' : `failed: ${r.error}`;
+    } else {
+      status.tts = 'skipped (未设 DOUBAO_TTS_API_KEY)';
+    }
     const ok = status.ffmpeg && status.ffprobe && missing.length === 0 && status.r2 === 'ok';
     emit(json, { ok, ...status },
       `ffmpeg: ${status.ffmpeg ? 'ok' : '缺失'}\nffprobe: ${status.ffprobe ? 'ok' : '缺失'}\n` +
-      `配置: ${missing.length ? `缺少 ${missing.join(', ')}` : 'ok'}\nR2 连通性: ${status.r2}`);
+      `配置: ${missing.length ? `缺少 ${missing.join(', ')}` : 'ok'}\nR2 连通性: ${status.r2}\nTTS(豆包): ${status.tts}`);
     process.exit(ok ? EXIT.OK : EXIT.FAIL);
   });
 

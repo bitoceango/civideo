@@ -28,6 +28,16 @@ export R2_BUCKET=child-video
 
 4. 验证：`cpv doctor`
 
+## 豆包 TTS 配置（仅 `audiobook` 听书功能需要）
+
+把电子书转成听书要调火山引擎豆包语音合成（seed-tts-2.0）。在**新版语音控制台**（`console.volcengine.com/speech/new`）开通「语音合成大模型」并在「API Key 管理」创建 API Key，然后：
+
+```bash
+export DOUBAO_TTS_API_KEY=<新版控制台的 API Key>
+```
+
+> 鉴权用新版控制台的单头 `X-Api-Key`（不是旧版 App ID + Access Token）。密钥**绝不入库**。`cpv doctor` 会顺带探测 TTS 连通性。
+
 ## 用法
 
 ```bash
@@ -40,9 +50,17 @@ cpv upload video.mkv --title "测试" --dry-run --json
 # 完整处理但只输出到本地目录（联调用，不上传）
 cpv upload video.webm --title "测试" --local-out /tmp/out --json
 
-# 列出播放列表 / 删除视频
+# 列出播放列表（视频 + 听书）/ 删除（视频 v 开头、听书 a 开头）
 cpv list --json
 cpv remove v1a2b3c4d5 --json
+
+# 电子书 → 听书（EPUB/TXT/MD）：按章合成→上传→更新 manifest
+# 先预览章节/字数/预计时长/成本，不合成：
+cpv audiobook 西游记.epub --title "西游记" --category 国学 --dry-run --json
+# 实跑（需 DOUBAO_TTS_API_KEY）：
+cpv audiobook 西游记.epub --title "西游记" --category 国学 --json
+# 指定音色 / 单段字数 / 幂等覆盖：
+cpv audiobook book.txt --title "睡前故事" --speaker zh_female_vv_uranus_bigtts --seg-chars 300 --id ab_bedtime --json
 ```
 
 ## 退出码与 JSON 输出（AI 集成约定）
@@ -50,8 +68,8 @@ cpv remove v1a2b3c4d5 --json
 | 退出码 | 含义 |
 |---|---|
 | 0 | 成功 |
-| 1 | 运行失败（文件不存在 / ffmpeg 失败 / R2 报错，详见 stdout 的 `error` 字段） |
-| 2 | 缺 R2 环境变量 |
+| 1 | 运行失败（文件不存在 / ffmpeg 失败 / R2 / TTS 报错，详见 stdout 的 `error` 字段） |
+| 2 | 缺配置（R2 环境变量，或 `audiobook` 缺 `DOUBAO_TTS_API_KEY`） |
 | 3 | 缺 ffmpeg/ffprobe |
 
 `--json` 时结果只打到 stdout（单个 JSON 对象，`ok` 字段标识成败），进度信息走 stderr，可放心 `JSON.parse`。
@@ -86,7 +104,12 @@ cpv remove v1a2b3c4d5 --json
   "videos": [ { "id": "...", "title": "...", "series": "...", "durationSec": 300,
                 "width": 1280, "height": 720, "sizeBytes": 0,
                 "video": "videos/<id>/video.mp4", "poster": "videos/<id>/poster.jpg",
-                "createdAt": "...", "updatedAt": "..." } ]
+                "createdAt": "...", "updatedAt": "..." } ],
+  "audiobooks": [ { "id": "a...", "title": "...", "author": "...", "cover": "audiobooks/<id>/cover.jpg",
+                    "category": "国学", "totalDurationSec": 1234,
+                    "chapters": [ { "idx": 1, "title": "第一章", "audio": "audiobooks/<id>/ch-1.mp3", "durationSec": 200 } ],
+                    "createdAt": "...", "updatedAt": "...",
+                    "source": { "format": "epub", "engine": "doubao", "speaker": "zh_female_vv_uranus_bigtts" } } ]
 }
 ```
 
