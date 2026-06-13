@@ -58,16 +58,66 @@ function checkRules(device, body) {
 }
 
 async function handleActivate(request, env) {
-  if (!env.PARENT_PIN) return json({ error: 'server_not_configured' }, 500);
+  // 激活密钥与家长 PIN 分离（#17）：激活优先用 ACTIVATION_KEY（长随机串）；
+  // 未设则回退 PARENT_PIN 兼容老部署。PARENT_PIN 仍用于「家长门」改规则（见 handleSaveRules）。
+  const activationSecret = env.ACTIVATION_KEY || env.PARENT_PIN;
+  if (!activationSecret) return json({ error: 'server_not_configured' }, 500);
+  if (!env.ACTIVATION_KEY && env.PARENT_PIN) {
+    console.warn('ACTIVATION_KEY 未设置，激活回退使用 PARENT_PIN；建议设置长随机 ACTIVATION_KEY 以分离激活密钥与家长 PIN');
+  }
+
+  // 激活限流（防 PIN 暴力破解）：同一来源 IP 连续失败 maxFails 次后锁定 lockMs，
+  // 期间一律 429。计数持久化在 D1（实例漂移不绕过）；成功或锁定窗口过期后重置。
+  const maxFails = Number(env.MAX_ACTIVATION_FAILS ?? 5);
+  const lockMs = Number(env.ACTIVATION_LOCK_MIN ?? 15) * 60 * 1000;
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const now = Date.now();
+
+  const att = await env.DB.prepare(
+    'SELECT fails, locked_until FROM activation_attempts WHERE ip = ?',
+  )
+    .bind(ip)
+    .first();
+
+  if (att && att.locked_until > now) {
+    const retryAfterSec = Math.ceil((att.locked_until - now) / 1000);
+    return json({ error: 'too_many_attempts', retryAfterSec }, 429, { 'retry-after': String(retryAfterSec) });
+  }
+
   let body;
   try {
     body = await request.json();
   } catch {
     return json({ error: 'bad_json' }, 400);
   }
-  if (!body?.pin || String(body.pin) !== String(env.PARENT_PIN)) {
-    return json({ error: 'invalid_pin' }, 403);
+
+  const presented = body?.key ?? body?.pin; // 兼容旧客户端的 pin 字段
+  if (!presented || String(presented) !== String(activationSecret)) {
+    // 记一次失败（上一次锁定已过期则从头计）
+    let fails = att && att.locked_until > 0 ? 0 : att?.fails || 0;
+    fails += 1;
+    let lockedUntil = 0;
+    const locked = fails >= maxFails;
+    if (locked) {
+      lockedUntil = now + lockMs;
+      fails = 0; // 锁定后重置计数，解锁即重新开始
+    }
+    await env.DB.prepare(
+      `INSERT INTO activation_attempts (ip, fails, locked_until, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(ip) DO UPDATE SET fails = excluded.fails, locked_until = excluded.locked_until, updated_at = excluded.updated_at`,
+    )
+      .bind(ip, fails, lockedUntil, now)
+      .run();
+    if (locked) {
+      const retryAfterSec = Math.ceil(lockMs / 1000);
+      return json({ error: 'too_many_attempts', retryAfterSec }, 429, { 'retry-after': String(retryAfterSec) });
+    }
+    return json({ error: 'invalid_pin', remainingAttempts: maxFails - fails }, 403);
   }
+
+  // 成功：清除该 IP 失败记录
+  await env.DB.prepare('DELETE FROM activation_attempts WHERE ip = ?').bind(ip).run();
+
   const token = randomToken();
   const id = crypto.randomUUID();
   await env.DB.prepare(

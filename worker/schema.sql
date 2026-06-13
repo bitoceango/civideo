@@ -27,3 +27,12 @@ CREATE TABLE IF NOT EXISTS watch_daily (
   watched_sec INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (device_id, day)
 );
+
+-- 激活失败限流（issue #16）：按来源 IP 记失败次数与锁定窗口，防 PIN 在线暴力破解。
+-- 连续失败达阈值后锁定一段时间，期间 /api/activate 一律返回 429；成功或窗口过期后重置。
+CREATE TABLE IF NOT EXISTS activation_attempts (
+  ip           TEXT PRIMARY KEY,
+  fails        INTEGER NOT NULL DEFAULT 0,
+  locked_until INTEGER NOT NULL DEFAULT 0,  -- epoch ms；> now 表示锁定中
+  updated_at   INTEGER NOT NULL
+);
