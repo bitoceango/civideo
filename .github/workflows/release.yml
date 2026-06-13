@@ -92,10 +92,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: windows
+      - name: 重命名安装包为干净 ASCII 名（productName 为中文，NSIS 会清成空致文件名以 _ 开头）
+        shell: bash
+        run: |
+          cd windows/src-tauri/target/release/bundle/nsis
+          mv *-setup.exe childvideo-windows-x64-setup.exe
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: windows/src-tauri/target/release/bundle/nsis/*-setup.exe
+          path: windows/src-tauri/target/release/bundle/nsis/childvideo-windows-x64-setup.exe
           if-no-files-found: error
 
   release:

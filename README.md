@@ -1,4 +1,7 @@
-# child-podcast — 自建儿童视频流媒体
+# civideo — 自建儿童视频流媒体 · Self-hosted Kids Video Streaming
+
+> **English** — A self-hosted, ad-free, *closed-content-garden* video streaming player for kids. Parents upload videos to Cloudflare R2; children watch in native apps (iPhone / iPad / Mac / Windows) — **no ads, no recommendation feed, no external content**, with parental controls (PIN, daily time limit, allowed hours). Built on Cloudflare Workers + R2 + D1, SwiftUI / AVPlayer, and Tauri.
+> **Keywords:** self-hosted · kids video · parental controls · screen time · Cloudflare Workers / R2 · ad-free · family · SwiftUI.
 
 一套**家庭自用**的私有儿童视频流媒体：家长把视频上传到 Cloudflare R2，孩子在原生 Apple App（iPhone / iPad / Mac）里观看。
 
