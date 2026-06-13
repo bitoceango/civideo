@@ -3,6 +3,7 @@ import SwiftUI
 // 首页（Epic B）：学科金刚区 + 继续观看 + 我喜欢的 + 系列聚合。无推荐流。
 struct HomeView: View {
     @EnvironmentObject var model: AppModel
+    @State private var pollTimer: Timer?
 
     var body: some View {
         NavigationStack {
@@ -38,6 +39,14 @@ struct HomeView: View {
             .refreshable { await model.reload() }
         }
         .tint(Theme.accent)
+        .onAppear {
+            Task { await model.reload() }   // 进入首页即刷新，新上传的视频自动出现
+            pollTimer?.invalidate()
+            pollTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { _ in
+                Task { @MainActor in await model.reload() }
+            }
+        }
+        .onDisappear { pollTimer?.invalidate(); pollTimer = nil }
     }
 
     // MARK: 头部
@@ -56,6 +65,13 @@ struct HomeView: View {
             }
             Spacer()
             if let rem = model.remainingMin { timePill(rem) }
+            Button { Task { await model.reload() } } label: {
+                Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .semibold))
+                    .frame(width: 40, height: 40)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+                    .foregroundStyle(Theme.muted)
+            }.buttonStyle(.plain)
         }
         .padding(.horizontal, 34).padding(.top, 26).padding(.bottom, 14)
     }
