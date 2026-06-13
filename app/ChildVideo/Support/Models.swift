@@ -13,10 +13,31 @@ struct Video: Codable, Identifiable, Hashable {
     let posterUrl: String     // 形如 /media/<id>/poster.jpg
 }
 
+// 听书：一本书的一章（对齐 Worker 的 audiobooks[].chapters[]）
+struct Chapter: Codable, Identifiable, Hashable {
+    let idx: Int
+    let title: String
+    let durationSec: Int
+    let audioUrl: String      // 形如 /media/audiobooks/<id>/ch-N.mp3
+    var id: Int { idx }
+}
+
+// 听书：一本书（对齐 Worker /api/library 的 audiobooks[]）
+struct Audiobook: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let author: String?
+    let category: String?
+    let totalDurationSec: Int
+    let coverUrl: String?     // 形如 /media/audiobooks/<id>/cover.jpg，可空
+    let chapters: [Chapter]
+}
+
 struct Library: Codable {
     let version: Int
     let updatedAt: String?
     let videos: [Video]
+    let audiobooks: [Audiobook]?   // 旧 Worker 无此字段，可空
 }
 
 struct Rules: Codable, Equatable {
