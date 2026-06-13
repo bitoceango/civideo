@@ -185,18 +185,28 @@ async function handleGetProgress(env, device, url) {
   const progress = {};
   for (const r of results) progress[r.video_id] = r.position_sec;
 
-  // 当日已观看时长（客户端按本地日期传 ?day=YYYY-MM-DD）
+  // 当日 / 近 7 天已观看时长（客户端按本地日期传 ?day=YYYY-MM-DD）
   let watchedSec = 0;
+  let weekSec = 0;
   const day = url.searchParams.get('day');
   if (day) {
-    const row = await env.DB.prepare(
+    const today = await env.DB.prepare(
       'SELECT watched_sec FROM watch_daily WHERE device_id = ? AND day = ?',
     )
       .bind(device.id, day)
       .first();
-    watchedSec = row?.watched_sec || 0;
+    watchedSec = today?.watched_sec || 0;
+
+    // 近 7 天（含今天）：day 为 YYYY-MM-DD，字典序与时间序一致，可直接区间求和
+    const start = new Date(Date.parse(day) - 6 * 86400000).toISOString().slice(0, 10);
+    const week = await env.DB.prepare(
+      'SELECT COALESCE(SUM(watched_sec), 0) AS s FROM watch_daily WHERE device_id = ? AND day >= ? AND day <= ?',
+    )
+      .bind(device.id, start, day)
+      .first();
+    weekSec = week?.s || 0;
   }
-  return json({ ok: true, progress, rules: ruleSummary(device), watchedSec });
+  return json({ ok: true, progress, rules: ruleSummary(device), watchedSec, weekSec });
 }
 
 // 家长改本设备规则（需 PIN，防孩子用设备令牌绕过限制）

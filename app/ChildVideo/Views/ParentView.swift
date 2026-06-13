@@ -94,6 +94,8 @@ struct ParentSettings: View {
     @State private var saveError: String?
     @State private var saved = false
 
+    @State private var eyeCareMin: Int
+
     init(pin: String, onExit: @escaping () -> Void) {
         self.pin = pin
         self.onExit = onExit
@@ -102,6 +104,7 @@ struct ParentSettings: View {
         _hoursEnabled = State(initialValue: false)
         _startHour = State(initialValue: 16)
         _endHour = State(initialValue: 20)
+        _eyeCareMin = State(initialValue: UserDefaults.standard.integer(forKey: Config.kEyeCareMin))
     }
 
     var body: some View {
@@ -149,9 +152,19 @@ struct ParentSettings: View {
                 }
 
                 group {
-                    settingRow(title: "当前设备", sub: deviceName) {
-                        Text("今日已看 \(model.todayWatchedSec / 60) 分钟")
-                            .font(.system(size: 13)).foregroundStyle(Theme.faint)
+                    settingRow(title: "护眼提醒", sub: "连续观看到点提醒孩子休息眼睛") {
+                        eyeCarePicker
+                    }
+                }
+
+                group {
+                    settingRow(title: "学习报告", sub: deviceName) {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("今日 \(model.todayWatchedSec / 60) 分钟")
+                                .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
+                            Text("本周 \(model.weekWatchedSec / 60) 分钟")
+                                .font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                        }
                     }
                 }
 
@@ -243,6 +256,23 @@ struct ParentSettings: View {
             Button { value.wrappedValue = min(range.upperBound, value.wrappedValue + step) } label: {
                 Image(systemName: "plus").frame(width: 34, height: 34).foregroundStyle(Theme.muted)
             }.buttonStyle(.plain)
+        }
+        .background(Theme.bg2, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var eyeCarePicker: some View {
+        HStack(spacing: 4) {
+            ForEach([(0, "关"), (20, "20"), (30, "30"), (45, "45")], id: \.0) { v, label in
+                Button {
+                    eyeCareMin = v
+                    UserDefaults.standard.set(v, forKey: Config.kEyeCareMin)
+                } label: {
+                    Text(label).font(.system(size: 13.5, weight: .semibold))
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(eyeCareMin == v ? Theme.accent : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+                        .foregroundStyle(eyeCareMin == v ? Theme.onAccent : Theme.muted)
+                }.buttonStyle(.plain)
+            }
         }
         .background(Theme.bg2, in: RoundedRectangle(cornerRadius: 12))
     }

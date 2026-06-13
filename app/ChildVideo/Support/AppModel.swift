@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
     @Published var progress: [String: Int] = [:]   // videoId -> 已观看秒
     @Published var rules: Rules = Rules(dailyLimitMin: nil, allowedStart: nil, allowedEnd: nil)
     @Published var todayWatchedSec: Int = 0
+    @Published var weekWatchedSec: Int = 0
     @Published var loadError: String?
     @Published var favorites: Set<String> = []   // 收藏的 videoId（存本地）
 
@@ -72,6 +73,7 @@ final class AppModel: ObservableObject {
                 todayWatchedSec = w
                 UserDefaults.standard.set(w, forKey: Config.kWatchedPrefix + Config.todayKey())
             }
+            weekWatchedSec = p.weekSec ?? 0
             evaluateGateOnEntry()
         } catch APIError.unauthorized {
             TokenStore.clear()

@@ -30,6 +30,7 @@ struct ProgressResponse: Codable {
     let progress: [String: Int]
     let rules: Rules
     let watchedSec: Int?
+    let weekSec: Int?
 }
 
 struct ActivateResponse: Codable {
