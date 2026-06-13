@@ -1,0 +1,44 @@
+name: Windows Build (x64 安装包)
+
+# 在 Windows 服务器上构建 Tauri x64 安装包（.msi / .exe）。
+# 作者在 mac 上开发，无法本地出 Windows 包；此 workflow 自动产出，
+# 在 Actions 运行页下载 childvideo-windows-x64 制品，发给家人双击安装即用。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows-build.yml'
+  workflow_dispatch:        # 手动触发
+  release:
+    types: [created]        # 打 release 时附带安装包
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: windows/src-tauri
+
+      - name: Build Tauri (Windows x64 .msi / .exe)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: windows
+          # 打 tag/release 时会自动把安装包传到对应 release
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: childvideo-windows-x64
+          path: windows/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error

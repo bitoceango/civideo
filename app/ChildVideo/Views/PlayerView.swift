@@ -145,6 +145,10 @@ struct PlayerView: View {
     @State private var locked = false
     @State private var showLockHint = false
     @State private var lockHintTask: Task<Void, Never>?
+    @State private var eyeCareAccum = 0
+    @State private var showEyeCare = false
+    @State private var eyeCareCountdown = 20
+    @State private var eyeCareTimer: Timer?
 
     private let speeds: [Float] = [0.75, 1, 1.25, 1.5]   // 儿童向克制档位，不上 2x
 
@@ -176,6 +180,8 @@ struct PlayerView: View {
                     nextCard(next).transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
+
+            if showEyeCare { eyeCareOverlay.transition(.opacity) }
         }
         #if os(iOS)
         .statusBarHidden()
@@ -216,6 +222,49 @@ struct PlayerView: View {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             showLockHint = false
         }
+    }
+
+    // 护眼休息遮罩
+    private var eyeCareOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.82).ignoresSafeArea()
+            VStack(spacing: 16) {
+                Image(systemName: "eyes").font(.system(size: 44)).foregroundStyle(Theme.accentHi)
+                Text("看了一会儿啦，休息下眼睛").font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
+                Text("看看远处，眨眨眼，放松一下～").font(.system(size: 15)).foregroundStyle(.white.opacity(0.7))
+                if eyeCareCountdown > 0 {
+                    Text("\(eyeCareCountdown)").font(.system(size: 40, weight: .bold)).monospacedDigit()
+                        .foregroundStyle(Theme.accentHi).padding(.top, 8)
+                } else {
+                    Button { endEyeCare() } label: {
+                        Label("继续观看", systemImage: "play.fill").font(.system(size: 16, weight: .bold))
+                            .padding(.horizontal, 26).padding(.vertical, 14)
+                            .background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent)
+                    }.buttonStyle(.plain).padding(.top, 8)
+                }
+            }
+        }
+    }
+
+    private func triggerEyeCare() {
+        engine.pause()
+        showEyeCare = true
+        eyeCareCountdown = 20
+        eyeCareTimer?.invalidate()
+        eyeCareTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            Task { @MainActor in
+                if eyeCareCountdown > 0 { eyeCareCountdown -= 1 }
+                else { eyeCareTimer?.invalidate(); eyeCareTimer = nil }
+            }
+        }
+    }
+
+    private func endEyeCare() {
+        eyeCareTimer?.invalidate(); eyeCareTimer = nil
+        showEyeCare = false
+        eyeCareAccum = 0
+        engine.play()
+        poke()
     }
 
     // 选集面板
@@ -526,6 +575,7 @@ struct PlayerView: View {
 
     private func stop() {
         heartbeat?.invalidate(); heartbeat = nil
+        eyeCareTimer?.invalidate(); eyeCareTimer = nil
         hideTask?.cancel()
         Task { await reportTick(force: true) }   // 离开时补一次
         engine.teardown()
@@ -537,6 +587,14 @@ struct PlayerView: View {
         // 仅在真正播放推进时累加时长
         let effectiveDelta = engine.isPlaying ? delta : 0
         lastReported = pos
+
+        // 护眼提醒累计（家长在设置里配的间隔，0=关）
+        let eyeCareInterval = UserDefaults.standard.integer(forKey: Config.kEyeCareMin)
+        if eyeCareInterval > 0 && !showEyeCare && engine.isPlaying {
+            eyeCareAccum += effectiveDelta
+            if eyeCareAccum >= eyeCareInterval * 60 { triggerEyeCare() }
+        }
+
         if let reason = await model.reportProgress(video: video, positionSec: pos, deltaSec: effectiveDelta) {
             engine.pause()
             stopHeartbeatOnly()

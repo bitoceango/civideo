@@ -33,7 +33,7 @@ struct RootView: View {
             case .activation:
                 ActivationView()
             case .library:
-                MainTabShell()
+                RootTabView()
             case .player(let video):
                 PlayerView(video: video)
                     .transition(.opacity)

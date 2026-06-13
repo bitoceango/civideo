@@ -17,6 +17,7 @@ final class AppModel: ObservableObject {
     @Published var progress: [String: Int] = [:]   // videoId / "<bookId>#<chIdx>" -> 已观看秒
     @Published var rules: Rules = Rules(dailyLimitMin: nil, allowedStart: nil, allowedEnd: nil)
     @Published var todayWatchedSec: Int = 0
+    @Published var weekWatchedSec: Int = 0
     @Published var loadError: String?
     @Published var favorites: Set<String> = []   // 收藏的 videoId（存本地）
 
@@ -135,6 +136,7 @@ final class AppModel: ObservableObject {
                 todayWatchedSec = w
                 UserDefaults.standard.set(w, forKey: Config.kWatchedPrefix + Config.todayKey())
             }
+            weekWatchedSec = p.weekSec ?? 0
             evaluateGateOnEntry()
             #if DEBUG
             if UserDefaults.standard.bool(forKey: "cv.debugPlay"),
@@ -190,6 +192,18 @@ final class AppModel: ObservableObject {
         var map: [String: [Video]] = [:]
         for v in library {
             let key = v.series ?? "未分组"
+            if map[key] == nil { order.append(key); map[key] = [] }
+            map[key]?.append(v)
+        }
+        return order.map { SeriesGroup(id: $0, title: $0, videos: map[$0] ?? []) }
+    }
+
+    // 按学科分组（manifest 的 category 字段）
+    var categoryGroups: [SeriesGroup] {
+        var order: [String] = []
+        var map: [String: [Video]] = [:]
+        for v in library {
+            let key = v.category ?? "未分类"
             if map[key] == nil { order.append(key); map[key] = [] }
             map[key]?.append(v)
         }

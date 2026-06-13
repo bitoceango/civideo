@@ -1,0 +1,9 @@
+{
+  "name": "childvideo-windows",
+  "version": "0.1.0",
+  "private": true,
+  "description": "儿童视频 Windows 客户端（Tauri）",
+  "scripts": {
+    "build": "echo 静态前端，无需构建步骤"
+  }
+}

@@ -12,6 +12,7 @@ enum Config {
     static let kServer = "cv.server"
     static let kDeviceName = "cv.deviceName"
     static let kChildName = "cv.childName"
+    static let kEyeCareMin = "cv.eyeCareMin"   // 护眼提醒间隔（分钟，0=关闭）
     static let kWatchedPrefix = "cv.watched."   // + yyyy-MM-dd -> 当日累计秒数
 
     static func todayKey(_ date: Date = Date()) -> String {

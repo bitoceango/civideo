@@ -109,13 +109,14 @@ struct LibraryView: View {
     }
 }
 
-// 一行系列（横向滚动封面）
+// 一行系列（横向滚动预览；集数多时标题旁出现「全部 ›」进入竖向网格）
 struct SeriesRow: View {
     @EnvironmentObject var model: AppModel
     let title: String
     let subtitle: String?
     let videos: [Video]
     let big: Bool
+    var seriesId: String? = nil          // 提供则标题可点进系列详情网格
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -124,18 +125,44 @@ struct SeriesRow: View {
                 if let subtitle {
                     Text(subtitle).font(.system(size: 13)).foregroundStyle(Theme.faint)
                 }
+                Spacer()
+                if let sid = seriesId, videos.count > 4 {
+                    NavigationLink(value: LibraryDestination.series(sid)) {
+                        HStack(spacing: 3) {
+                            Text("全部").font(.system(size: 13.5, weight: .semibold))
+                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
+                        }.foregroundStyle(Theme.accentHi)
+                    }.buttonStyle(.plain)
+                }
             }
             .padding(.horizontal, 34)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 18) {
-                    ForEach(videos) { v in
+                    ForEach(videos.prefix(big ? 12 : 10)) { v in
                         PosterCard(video: v, big: big) { model.route = .player(v) }
+                    }
+                    if let sid = seriesId, videos.count > (big ? 12 : 10) {
+                        seeAllCard(sid)
                     }
                 }
                 .padding(.horizontal, 34).padding(.vertical, 4)
             }
         }
         .padding(.vertical, 10)
+    }
+
+    // 行末「查看全部」卡
+    private func seeAllCard(_ sid: String) -> some View {
+        NavigationLink(value: LibraryDestination.series(sid)) {
+            VStack(spacing: 10) {
+                Image(systemName: "square.grid.2x2.fill").font(.system(size: 26)).foregroundStyle(Theme.accentHi)
+                Text("查看全部\n\(videos.count) 集").multilineTextAlignment(.center)
+                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.muted)
+            }
+            .frame(width: big ? 200 : 150, height: (big ? 320 : 220) / (big ? 16.0/9.0 : 16.0/10.0))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.line, lineWidth: 1))
+        }.buttonStyle(.plain)
     }
 }

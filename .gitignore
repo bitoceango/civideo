@@ -30,6 +30,12 @@ designs/.server.pid
 # ---- macOS ----
 .DS_Store
 
+# ---- Tauri (Windows) ----
+windows/src-tauri/target/
+windows/src-tauri/gen/
+windows/node_modules/
+windows/dist/
+
 # ---- 临时 ----
 /tmp/
 

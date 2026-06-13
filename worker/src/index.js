@@ -13,7 +13,11 @@ const MANIFEST_KEY = 'manifest.json';
 const json = (data, status = 200, extra = {}) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', ...extra },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'access-control-allow-origin': '*',   // Web/Tauri 客户端跨域 fetch（数据仍需令牌）
+      ...extra,
+    },
   });
 
 async function sha256Hex(text) {
@@ -27,12 +31,19 @@ function randomToken() {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// 从 Authorization 头取出设备，未通过返回 null
+// 取设备令牌：优先 Authorization 头（Apple 端），否则 ?t= query（供 HTML <video> 流播，
+// 因为 video 元素无法设置自定义请求头）。未通过返回 null。
 async function authDevice(request, env) {
-  const auth = request.headers.get('Authorization') || '';
-  const m = auth.match(/^Bearer\s+([0-9a-f]{64})$/i);
-  if (!m) return null;
-  const hash = await sha256Hex(m[1]);
+  let token = null;
+  const m = (request.headers.get('Authorization') || '').match(/^Bearer\s+([0-9a-f]{64})$/i);
+  if (m) {
+    token = m[1];
+  } else {
+    const t = new URL(request.url).searchParams.get('t');
+    if (t && /^[0-9a-f]{64}$/i.test(t)) token = t;
+  }
+  if (!token) return null;
+  const hash = await sha256Hex(token);
   return env.DB.prepare('SELECT * FROM devices WHERE token_hash = ?').bind(hash).first();
 }
 
@@ -51,16 +62,66 @@ function checkRules(device, body) {
 }
 
 async function handleActivate(request, env) {
-  if (!env.PARENT_PIN) return json({ error: 'server_not_configured' }, 500);
+  // 激活密钥与家长 PIN 分离（#17）：激活优先用 ACTIVATION_KEY（长随机串）；
+  // 未设则回退 PARENT_PIN 兼容老部署。PARENT_PIN 仍用于「家长门」改规则（见 handleSaveRules）。
+  const activationSecret = env.ACTIVATION_KEY || env.PARENT_PIN;
+  if (!activationSecret) return json({ error: 'server_not_configured' }, 500);
+  if (!env.ACTIVATION_KEY && env.PARENT_PIN) {
+    console.warn('ACTIVATION_KEY 未设置，激活回退使用 PARENT_PIN；建议设置长随机 ACTIVATION_KEY 以分离激活密钥与家长 PIN');
+  }
+
+  // 激活限流（防 PIN 暴力破解）：同一来源 IP 连续失败 maxFails 次后锁定 lockMs，
+  // 期间一律 429。计数持久化在 D1（实例漂移不绕过）；成功或锁定窗口过期后重置。
+  const maxFails = Number(env.MAX_ACTIVATION_FAILS ?? 5);
+  const lockMs = Number(env.ACTIVATION_LOCK_MIN ?? 15) * 60 * 1000;
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const now = Date.now();
+
+  const att = await env.DB.prepare(
+    'SELECT fails, locked_until FROM activation_attempts WHERE ip = ?',
+  )
+    .bind(ip)
+    .first();
+
+  if (att && att.locked_until > now) {
+    const retryAfterSec = Math.ceil((att.locked_until - now) / 1000);
+    return json({ error: 'too_many_attempts', retryAfterSec }, 429, { 'retry-after': String(retryAfterSec) });
+  }
+
   let body;
   try {
     body = await request.json();
   } catch {
     return json({ error: 'bad_json' }, 400);
   }
-  if (!body?.pin || String(body.pin) !== String(env.PARENT_PIN)) {
-    return json({ error: 'invalid_pin' }, 403);
+
+  const presented = body?.key ?? body?.pin; // 兼容旧客户端的 pin 字段
+  if (!presented || String(presented) !== String(activationSecret)) {
+    // 记一次失败（上一次锁定已过期则从头计）
+    let fails = att && att.locked_until > 0 ? 0 : att?.fails || 0;
+    fails += 1;
+    let lockedUntil = 0;
+    const locked = fails >= maxFails;
+    if (locked) {
+      lockedUntil = now + lockMs;
+      fails = 0; // 锁定后重置计数，解锁即重新开始
+    }
+    await env.DB.prepare(
+      `INSERT INTO activation_attempts (ip, fails, locked_until, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(ip) DO UPDATE SET fails = excluded.fails, locked_until = excluded.locked_until, updated_at = excluded.updated_at`,
+    )
+      .bind(ip, fails, lockedUntil, now)
+      .run();
+    if (locked) {
+      const retryAfterSec = Math.ceil(lockMs / 1000);
+      return json({ error: 'too_many_attempts', retryAfterSec }, 429, { 'retry-after': String(retryAfterSec) });
+    }
+    return json({ error: 'invalid_pin', remainingAttempts: maxFails - fails }, 403);
   }
+
+  // 成功：清除该 IP 失败记录
+  await env.DB.prepare('DELETE FROM activation_attempts WHERE ip = ?').bind(ip).run();
+
   const token = randomToken();
   const id = crypto.randomUUID();
   await env.DB.prepare(
@@ -123,6 +184,7 @@ async function handleMedia(env, ctx, key, request) {
   if (cached) {
     const h = new Headers(cached.headers);
     h.set('x-edge-cache', 'HIT');
+    h.set('access-control-allow-origin', '*');
     return new Response(cached.body, { status: cached.status, headers: h });
   }
 
@@ -151,6 +213,7 @@ async function handleMedia(env, ctx, key, request) {
   headers.set('accept-ranges', 'bytes');
   headers.set('cache-control', 'public, max-age=86400, immutable'); // 内容按 id 寻址，永不变
   headers.set('x-edge-cache', 'MISS');
+  headers.set('access-control-allow-origin', '*');
   if (!headers.has('content-type')) {
     headers.set('content-type', contentTypeOf(key));
   }
@@ -197,18 +260,28 @@ async function handleGetProgress(env, device, url) {
   const progress = {};
   for (const r of results) progress[r.video_id] = r.position_sec;
 
-  // 当日已观看时长（客户端按本地日期传 ?day=YYYY-MM-DD）
+  // 当日 / 近 7 天已观看时长（客户端按本地日期传 ?day=YYYY-MM-DD）
   let watchedSec = 0;
+  let weekSec = 0;
   const day = url.searchParams.get('day');
   if (day) {
-    const row = await env.DB.prepare(
+    const today = await env.DB.prepare(
       'SELECT watched_sec FROM watch_daily WHERE device_id = ? AND day = ?',
     )
       .bind(device.id, day)
       .first();
-    watchedSec = row?.watched_sec || 0;
+    watchedSec = today?.watched_sec || 0;
+
+    // 近 7 天（含今天）：day 为 YYYY-MM-DD，字典序与时间序一致，可直接区间求和
+    const start = new Date(Date.parse(day) - 6 * 86400000).toISOString().slice(0, 10);
+    const week = await env.DB.prepare(
+      'SELECT COALESCE(SUM(watched_sec), 0) AS s FROM watch_daily WHERE device_id = ? AND day >= ? AND day <= ?',
+    )
+      .bind(device.id, start, day)
+      .first();
+    weekSec = week?.s || 0;
   }
-  return json({ ok: true, progress, rules: ruleSummary(device), watchedSec });
+  return json({ ok: true, progress, rules: ruleSummary(device), watchedSec, weekSec });
 }
 
 // 家长改本设备规则（需 PIN，防孩子用设备令牌绕过限制）

@@ -1,71 +1,36 @@
 import SwiftUI
 
-enum MainTab { case home, listen }   // 内容 Tab；「我的」走全屏 route，「分类」由 001 接入
-
-// 主壳：底部 Tab（首页/听书/我的）+ 常驻迷你播放条。
-struct MainTabShell: View {
-    @EnvironmentObject var model: AppModel
+// 底部模块：首页 / 分类 / 听书 / 我的（听书=需求 004；其余=001 三大模块）
+struct RootTabView: View {
     @EnvironmentObject var audio: AudioController
-    @State private var tab: MainTab = .home
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                switch tab {
-                case .home:   LibraryView()
-                case .listen: ListenTabView()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if audio.book != nil {
-                MiniPlayerBar()
-            }
-            TabBar(tab: $tab)
-        }
-        .background(Theme.bg)
+    @State private var tab: Int = {
         #if DEBUG
-        .onAppear { if UserDefaults.standard.bool(forKey: "cv.debugListen") { tab = .listen } }
+        return UserDefaults.standard.integer(forKey: "cv.debugTab")  // 测试用：指定初始 Tab
+        #else
+        return 0
         #endif
-    }
-}
-
-private struct TabBar: View {
-    @EnvironmentObject var model: AppModel
-    @Binding var tab: MainTab
+    }()
 
     var body: some View {
-        HStack(spacing: 0) {
-            item(.home, "house.fill", "首页")
-            item(.listen, "headphones", "听书")
-            // 「分类」由 001 接入：首页/分类/听书/我的
-            Button { model.route = .parent } label: {
-                tabLabel("person.fill", "我的", active: false)
-            }.buttonStyle(.plain)
+        TabView(selection: $tab) {
+            HomeView()
+                .tabItem { Label("首页", systemImage: "house.fill") }.tag(0)
+            CategoryView()
+                .tabItem { Label("分类", systemImage: "square.grid.2x2.fill") }.tag(1)
+            ListenTabView()
+                .tabItem { Label("听书", systemImage: "headphones") }.tag(2)
+            MineView()
+                .tabItem { Label("我的", systemImage: "person.fill") }.tag(3)
         }
-        .padding(.top, 6)
-        .background(Theme.bg2)
-        .overlay(Divider().background(Theme.line), alignment: .top)
-    }
-
-    private func item(_ t: MainTab, _ icon: String, _ title: String) -> some View {
-        Button { tab = t } label: { tabLabel(icon, title, active: tab == t) }
-            .buttonStyle(.plain)
-    }
-
-    private func tabLabel(_ icon: String, _ title: String, active: Bool) -> some View {
-        VStack(spacing: 2) {
-            Image(systemName: icon).font(.system(size: 19))
-            Text(title).font(.system(size: 10.5, weight: .medium))
+        .tint(Theme.accent)
+        // 听书在播时，迷你条跨 Tab 常驻（贴在 Tab 栏之上）
+        .safeAreaInset(edge: .bottom) {
+            if audio.book != nil { MiniPlayerBar() }
         }
-        .foregroundStyle(active ? Theme.accentHi : Theme.faint)
-        .frame(maxWidth: .infinity)
-        .padding(.bottom, 12)
-        .contentShape(Rectangle())
     }
 }
 
-// 迷你播放条：听书在播时常驻（Tab 之上），点开 = 全屏播放器。
+// 迷你播放条：听书在播时常驻，点开 = 全屏播放器（收起≠停播）
 struct MiniPlayerBar: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var audio: AudioController
@@ -107,7 +72,7 @@ struct MiniPlayerBar: View {
                 .background(Theme.cardHi)
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.line, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal, 10).padding(.bottom, 8)
+                .padding(.horizontal, 10).padding(.bottom, 6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

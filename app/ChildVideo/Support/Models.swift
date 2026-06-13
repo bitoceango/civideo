@@ -5,6 +5,7 @@ struct Video: Codable, Identifiable, Hashable {
     let id: String
     let title: String
     let series: String?
+    let category: String?
     let durationSec: Int
     let width: Int?
     let height: Int?
@@ -50,6 +51,7 @@ struct ProgressResponse: Codable {
     let progress: [String: Int]
     let rules: Rules
     let watchedSec: Int?
+    let weekSec: Int?
 }
 
 struct ActivateResponse: Codable {
