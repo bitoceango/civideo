@@ -114,7 +114,9 @@ PIN=<你的PIN> bash tests/e2e-backend.sh        # 端到端后端验收，退�
 
 - R2 桶保持**私有**，所有媒体请求经 Worker 校验设备令牌后才返回字节，R2 永不公开直连。
 - 家长 PIN 是 Worker secret，R2 密钥是本机环境变量，孩子姓名等**都不在仓库里**（放本地 `deploy.local.json`）。
-- R2 出口免费 = 没有带宽账单可被「盗刷」；建议再开 Cloudflare 速率限制。
+- **激活防爆破**（issue #16）：`/api/activate` 内置限流——同一 IP 连续失败 5 次即锁定 15 分钟（返回 `429`），计数持久化在 D1；可用环境变量 `MAX_ACTIVATION_FAILS` / `ACTIVATION_LOCK_MIN` 调整。⚠️ 自定义域名会进公开的 Certificate Transparency 日志（**域名不是秘密**），安全只靠 **PIN 强度 + 限流**，请设强 PIN。（升级老部署需重跑 `schema.sql` 以建 `activation_attempts` 表。）
+- **零代码加固**（可选，推荐叠加）：Cloudflare 控制台 → Security → WAF → Rate limiting rules，对表达式 `http.request.uri.path eq "/api/activate"` 设「每 IP 每分钟 ≤ 5 次，超出 Block」。
+- R2 出口免费 = 没有带宽账单可被「盗刷」。
 - 仅供家庭内部私密访问，请勿公开分享链接或二次分发受版权保护的内容。
 
 ## License

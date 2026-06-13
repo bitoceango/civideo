@@ -59,15 +59,58 @@ function checkRules(device, body) {
 
 async function handleActivate(request, env) {
   if (!env.PARENT_PIN) return json({ error: 'server_not_configured' }, 500);
+
+  // 激活限流（防 PIN 暴力破解）：同一来源 IP 连续失败 maxFails 次后锁定 lockMs，
+  // 期间一律 429。计数持久化在 D1（实例漂移不绕过）；成功或锁定窗口过期后重置。
+  const maxFails = Number(env.MAX_ACTIVATION_FAILS ?? 5);
+  const lockMs = Number(env.ACTIVATION_LOCK_MIN ?? 15) * 60 * 1000;
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const now = Date.now();
+
+  const att = await env.DB.prepare(
+    'SELECT fails, locked_until FROM activation_attempts WHERE ip = ?',
+  )
+    .bind(ip)
+    .first();
+
+  if (att && att.locked_until > now) {
+    const retryAfterSec = Math.ceil((att.locked_until - now) / 1000);
+    return json({ error: 'too_many_attempts', retryAfterSec }, 429, { 'retry-after': String(retryAfterSec) });
+  }
+
   let body;
   try {
     body = await request.json();
   } catch {
     return json({ error: 'bad_json' }, 400);
   }
+
   if (!body?.pin || String(body.pin) !== String(env.PARENT_PIN)) {
-    return json({ error: 'invalid_pin' }, 403);
+    // 记一次失败（上一次锁定已过期则从头计）
+    let fails = att && att.locked_until > 0 ? 0 : att?.fails || 0;
+    fails += 1;
+    let lockedUntil = 0;
+    const locked = fails >= maxFails;
+    if (locked) {
+      lockedUntil = now + lockMs;
+      fails = 0; // 锁定后重置计数，解锁即重新开始
+    }
+    await env.DB.prepare(
+      `INSERT INTO activation_attempts (ip, fails, locked_until, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(ip) DO UPDATE SET fails = excluded.fails, locked_until = excluded.locked_until, updated_at = excluded.updated_at`,
+    )
+      .bind(ip, fails, lockedUntil, now)
+      .run();
+    if (locked) {
+      const retryAfterSec = Math.ceil(lockMs / 1000);
+      return json({ error: 'too_many_attempts', retryAfterSec }, 429, { 'retry-after': String(retryAfterSec) });
+    }
+    return json({ error: 'invalid_pin', remainingAttempts: maxFails - fails }, 403);
   }
+
+  // 成功：清除该 IP 失败记录
+  await env.DB.prepare('DELETE FROM activation_attempts WHERE ip = ?').bind(ip).run();
+
   const token = randomToken();
   const id = crypto.randomUUID();
   await env.DB.prepare(
