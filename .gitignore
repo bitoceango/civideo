@@ -1,0 +1,37 @@
+# ---- 本地私密配置（含真实域名/账号ID/数据库ID 等，切勿提交）----
+deploy.local.json
+worker/wrangler.jsonc
+.env
+.env.local
+*.local.swift
+
+# ---- Cloudflare / wrangler ----
+.wrangler/
+.dev.vars
+
+# ---- Node ----
+node_modules/
+npm-debug.log*
+
+# ---- Xcode / xcodegen 生成物（由 `xcodegen generate` 重新生成）----
+app/ChildVideo.xcodeproj/
+app/ChildVideo/Info.plist
+app/ChildVideo/ChildVideo.entitlements
+app/build/
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# ---- 设计稿元数据（本地）----
+designs/**/_d_meta.json
+designs/.server.pid
+
+# ---- macOS ----
+.DS_Store
+
+# ---- 临时 ----
+/tmp/
+
+# ---- 本地工具配置 ----
+.claude/launch.json

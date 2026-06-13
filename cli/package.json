@@ -1,0 +1,17 @@
+{
+  "name": "child-podcast-cli",
+  "version": "0.1.0",
+  "description": "上传视频到 Cloudflare R2 并维护播放列表 manifest.json 的 CLI（cpv），为 AI 调用设计",
+  "type": "module",
+  "bin": {
+    "cpv": "src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/lib-storage": "^3.600.0",
+    "commander": "^12.1.0"
+  }
+}

@@ -1,0 +1,23 @@
+# child-podcast
+
+家庭自用儿童视频流媒体：家长上传视频到 Cloudflare R2，孩子在封闭播放器里观看。完整架构见 `docs/architecture.md`。
+
+## 上传视频（AI 直接调用 CLI）
+
+前置：环境变量 `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET`（配置见 `cli/README.md`），本机需有 ffmpeg。首次使用先 `cd cli && npm install`。
+
+实际部署值：bucket = `child-video`（APAC），`R2_ACCOUNT_ID=<YOUR_CLOUDFLARE_ACCOUNT_ID>`，Worker 域名 `video.example.com`。
+
+```bash
+node cli/src/index.js upload <视频文件> --title "标题" [--series "系列名"] --json
+node cli/src/index.js list --json
+node cli/src/index.js remove <id> --json
+node cli/src/index.js doctor --json   # 检查 ffmpeg/配置/R2 连通性
+```
+
+约定：
+- `--json` 结果在 stdout（单个 JSON 对象，`ok` 字段标识成败），进度在 stderr
+- 退出码：0 成功 / 1 失败 / 2 缺 R2 配置 / 3 缺 ffmpeg
+- 上传会自动探测编码：H.264/AAC+MP4 直传；仅容器不对就秒级重封装；编码不兼容才转码（慢）。先 `--dry-run` 可预览
+- 上传成功即更新 R2 里的 `manifest.json`（播放列表单一事实源），播放器刷新即见
+- 批量上传请串行执行，勿并行（manifest 整文件读-改-写）
