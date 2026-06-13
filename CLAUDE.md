@@ -2,6 +2,10 @@
 
 家庭自用儿童视频流媒体：家长上传视频到 Cloudflare R2，孩子在封闭播放器里观看。完整架构见 `docs/architecture.md`。
 
+## ⚠️ 开发流程：issue 先行（硬性规则）
+
+任何新需求/功能/改动，**必须先建 GitHub issue（按 `.github/ISSUE_TEMPLATE/feature_request.md` 模板填全：目标/功能特性/改动范围/测试方案/验收方案），再开发、再提交**。提交时关联 issue 号。详见 `CONTRIBUTING.md`。没有 issue，不写代码。
+
 ## 上传视频（AI 直接调用 CLI）
 
 前置：环境变量 `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET`（配置见 `cli/README.md`），本机需有 ffmpeg。首次使用先 `cd cli && npm install`。

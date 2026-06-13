@@ -17,14 +17,24 @@ final class AppModel: ObservableObject {
     @Published var rules: Rules = Rules(dailyLimitMin: nil, allowedStart: nil, allowedEnd: nil)
     @Published var todayWatchedSec: Int = 0
     @Published var loadError: String?
+    @Published var favorites: Set<String> = []   // 收藏的 videoId（存本地）
 
     private(set) var api: APIClient
+    private let kFavorites = "cv.favorites"
 
     init() {
         let server = UserDefaults.standard.string(forKey: Config.kServer) ?? Config.defaultServer
         api = APIClient(baseURL: server, token: TokenStore.load())
         todayWatchedSec = UserDefaults.standard.integer(forKey: Config.kWatchedPrefix + Config.todayKey())
+        favorites = Set(UserDefaults.standard.stringArray(forKey: kFavorites) ?? [])
     }
+
+    func isFavorite(_ v: Video) -> Bool { favorites.contains(v.id) }
+    func toggleFavorite(_ v: Video) {
+        if favorites.contains(v.id) { favorites.remove(v.id) } else { favorites.insert(v.id) }
+        UserDefaults.standard.set(Array(favorites), forKey: kFavorites)
+    }
+    var favoriteVideos: [Video] { library.filter { favorites.contains($0.id) } }
 
     var server: String { api.baseURL }
 
@@ -133,6 +143,14 @@ final class AppModel: ObservableObject {
               let idx = group.videos.firstIndex(of: v), idx + 1 < group.videos.count
         else { return nil }
         return group.videos[idx + 1]
+    }
+
+    // 同系列上一集
+    func prevEpisode(before v: Video) -> Video? {
+        guard let group = seriesGroups.first(where: { $0.id == (v.series ?? "未分组") }),
+              let idx = group.videos.firstIndex(of: v), idx - 1 >= 0
+        else { return nil }
+        return group.videos[idx - 1]
     }
 
     // 播放心跳上报，返回是否被拦截。即使 deltaSec=0 也上报，

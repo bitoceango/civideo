@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 开发流程说明
+    url: https://github.com/bitoceango/civideo/blob/main/CONTRIBUTING.md
+    about: 提需求前请先阅读「issue 先行」的开发规范

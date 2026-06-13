@@ -17,6 +17,11 @@ struct LibraryView: View {
                               videos: model.continueWatching, big: true)
                 }
 
+                if !model.favoriteVideos.isEmpty {
+                    SeriesRow(title: "我喜欢的", subtitle: nil,
+                              videos: model.favoriteVideos, big: false)
+                }
+
                 ForEach(model.seriesGroups) { group in
                     SeriesRow(title: group.title,
                               subtitle: "共 \(group.videos.count) 集",
