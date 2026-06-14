@@ -318,6 +318,26 @@ function probeAndPoster(bytes){
   });
 }
 
+// 核心上传流水线（路径可注入，便于自动化测试；GUI 与自测共用）
+async function uploadFromPath(path, meta, set){
+  set = set || (()=>{});
+  set('读取文件…'); const bytes=await cvNative.readBytes(path);
+  set('生成封面…'); let poster=null,durationSec=0,width=null,height=null;
+  try{ const p=await probeAndPoster(bytes); poster=p.posterBytes; durationSec=p.durationSec; width=p.width; height=p.height; }catch(e){ /* 海报失败不阻断 */ }
+  set('申请上传…');
+  const r=await fetch(`${API.server}/api/admin/upload-url`,{method:'POST',headers:{'content-type':'application/json',...API.authHeaders()},body:JSON.stringify({pin:minePin})});
+  if(r.status===403) throw new Error('家长密码不正确');
+  if(!r.ok) throw new Error('申请上传失败（'+r.status+'）');
+  const u=await r.json();
+  set(`上传视频（${(bytes.length/1048576).toFixed(0)}MB）…`);
+  const vs=await cvNative.put(u.videoPut,bytes,'video/mp4');
+  if(vs<200||vs>=300) throw new Error('视频上传失败（'+vs+'）');
+  if(poster){ set('上传封面…'); try{ await cvNative.put(u.posterPut,poster,'image/jpeg'); }catch(e){} }
+  set('写入库…');
+  const m=await fetch(`${API.server}/api/admin/manifest-add`,{method:'POST',headers:{'content-type':'application/json',...API.authHeaders()},body:JSON.stringify({pin:minePin,id:u.id,title:meta.title,series:meta.series||null,category:meta.category||null,durationSec,width,height,sizeBytes:bytes.length,source:meta.source||'本地上传'})});
+  if(!m.ok) throw new Error('写入库失败（'+m.status+'）');
+  return {id:u.id, sizeBytes:bytes.length, durationSec};
+}
 async function uploadLocalVideo(){
   const st=document.getElementById('up-status'); const set=m=>{ if(st)st.textContent=m; };
   const title=(document.getElementById('up-title')?.value||'').trim();
@@ -327,21 +347,7 @@ async function uploadLocalVideo(){
   const category=(document.getElementById('up-category')?.value||'').trim();
   try{
     set('选择文件…'); const path=await cvNative.pickVideo(); if(!path){ set(''); return; }
-    set('读取文件…'); const bytes=await cvNative.readBytes(path);
-    set('生成封面…'); let poster=null,durationSec=0,width=null,height=null;
-    try{ const p=await probeAndPoster(bytes); poster=p.posterBytes; durationSec=p.durationSec; width=p.width; height=p.height; }catch(e){ /* 海报失败不阻断 */ }
-    set('申请上传…');
-    const r=await fetch(`${API.server}/api/admin/upload-url`,{method:'POST',headers:{'content-type':'application/json',...API.authHeaders()},body:JSON.stringify({pin:minePin})});
-    if(r.status===403){ set('家长密码不正确'); return; }
-    if(!r.ok){ set('申请上传失败（'+r.status+'）'); return; }
-    const u=await r.json();
-    set(`上传视频（${(bytes.length/1048576).toFixed(0)}MB）…`);
-    const vs=await cvNative.put(u.videoPut,bytes,'video/mp4');
-    if(vs<200||vs>=300){ set('视频上传失败（'+vs+'）'); return; }
-    if(poster){ set('上传封面…'); try{ await cvNative.put(u.posterPut,poster,'image/jpeg'); }catch(e){} }
-    set('写入库…');
-    const m=await fetch(`${API.server}/api/admin/manifest-add`,{method:'POST',headers:{'content-type':'application/json',...API.authHeaders()},body:JSON.stringify({pin:minePin,id:u.id,title,series:series||null,category:category||null,durationSec,width,height,sizeBytes:bytes.length,source:'本地上传'})});
-    if(!m.ok){ set('写入库失败（'+m.status+'）'); return; }
+    await uploadFromPath(path,{title,series,category},set);
     set('✅ 上传成功！'); const ti=document.getElementById('up-title'); if(ti)ti.value=''; await reload(); toast('已加入视频库');
   }catch(e){ set('出错：'+(e?.message||e)); }
 }
