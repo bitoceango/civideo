@@ -301,17 +301,26 @@ const cvNative = {
   },
   get canDownload(){ return !!(window.__TAURI__ && window.__TAURI__.shell && window.__TAURI__.path); },
   // 用捆绑的 yt-dlp 下载网址到本机临时 mp4，返回文件路径。
-  async downloadVideo(url){
+  // 先不带 cookies（YouTube 等免登录快）；失败再用浏览器登录态重试（B站等风控站点需要登录，会下到你账号能看的画质）。
+  async downloadVideo(url, set){
+    set=set||(()=>{});
     const sh=window.__TAURI__.shell, path=window.__TAURI__.path;
     const tmp=await path.tempDir();
     const out=await path.join(tmp, 'cv-dl-'+Math.random().toString(36).slice(2,10)+'.mp4');
-    const args=['--no-playlist','--no-warnings','--no-part',
+    const base=['--no-playlist','--no-warnings','--no-part',
       '--extractor-args','youtube:player_client=web,tv,web_safari',
-      '-f','best[ext=mp4]/best',
-      '-o',out, url];
-    const res=await sh.Command.sidecar('binaries/yt-dlp', args).execute();
-    if(res.code!==0) throw new Error('下载失败：'+String(res.stderr||res.stdout||'').replace(/\s+/g,' ').slice(-160));
-    return out;
+      '-S','res:720,vcodec:h264,acodec:aac','--merge-output-format','mp4','-o',out];
+    const tries=[null,'chrome','edge','firefox','brave','chromium','safari'];
+    let lastErr='';
+    for(const b of tries){
+      set(b?`下载中（用 ${b} 登录态重试）…`:'下载中…（可能几十秒）');
+      const args=b?[...base,'--cookies-from-browser',b,url]:[...base,url];
+      let res; try{ res=await sh.Command.sidecar('binaries/yt-dlp',args).execute(); }
+      catch(e){ lastErr=String((e&&e.message)||e); continue; }
+      if(res.code===0) return out;
+      lastErr=String(res.stderr||res.stdout||'');
+    }
+    throw new Error('下载失败：'+lastErr.replace(/\s+/g,' ').slice(-180));
   },
 };
 
@@ -379,8 +388,7 @@ async function uploadFromUrl(){
   const series=(document.getElementById('up-series')?.value||'').trim();
   const category=(document.getElementById('up-category')?.value||'').trim();
   try{
-    set('下载中…（可能要几十秒到几分钟）');
-    const path=await cvNative.downloadVideo(url);
+    const path=await cvNative.downloadVideo(url, set);
     await uploadFromPath(path,{title,series,category,source:url},set);
     set('✅ 下载并上传成功！');
     const ti=document.getElementById('up-title'); if(ti)ti.value='';
