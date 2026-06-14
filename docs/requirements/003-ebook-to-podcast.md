@@ -112,6 +112,20 @@
 - **Story E1 — `/api/library` 透传 audiobooks**
   - **AC**：[ ] manifest 的 `audiobooks` 原样下发；[ ] 章节音频按既有 `videos` 的鉴权/边缘缓存方式经 Worker 访问；[ ] 旧客户端忽略该字段不受影响。
 
+### Epic W：Windows 端听书（对接现成接口）
+**目标**：Windows App 与 Apple 端对齐，能发现并收听听书。后端（Worker `/api/library` 透传 + `/media/audiobooks/*` 网关）已就绪，本 Epic 为**纯前端**。
+**范围**：`windows/src/app.js`（听书 Tab + 书架 + 章节列表 + 音频播放器）、`windows/src/styles.css`；`api.js` 复用（`library()` 已含 `audiobooks`，`mediaUrl()` 已带 `?t=` 令牌，无需改）。关联 `003-windows-app.md`。
+
+- **Story W1 — 听书 Tab 与书架**
+  - 作为孩子，我想在 Windows 上有「听书」入口，进去看到书（按分类/继续收听）。
+  - **AC**：[ ] 顶部新增「听书」Tab（首页/分类/听书/我的）；[ ] 书架按分类分组 + 封面网格（无封面用占位图）；[ ] 有进度的书显示「继续收听」。
+- **Story W2 — 书籍详情与章节列表**
+  - **AC**：[ ] 点书进入详情（封面 + 书名 + 作者 + 总时长 + 章节数）；[ ] 章节列表（序号/标题/时长）；[ ] 「播放 / 继续收听」按钮。
+- **Story W3 — 音频播放器**
+  - 作为孩子，我想点章节就能听，并能上一章/下一章、暂停、调速、拖动进度。
+  - **AC**：[ ] 音频播放界面（封面 + 书名 + 章节标题 + 进度条，无视频画面）；[ ] 章节连播 / 上一章 / 下一章 / 自动续播；[ ] 续听（记住最后章节与位置）；[ ] 受**时段**管控（睡前不放）。
+- **范围外（后续）**：迷你播放条 / 睡眠定时 / 后台续播（Apple 端 Epic G/H；Windows 为桌面常驻窗口，优先级低）。**设计决策**：听书**不计入每日观看上限**（护眼初衷：鼓励听、少看屏），仅受**时段**管控。
+
 ## 5. 数据 / 接口影响
 - **manifest.json**：新增 `audiobooks` 数组（见 C2）；`videos` 不变。
 - **R2 对象**：`audiobooks/<id>/ch-<n>.mp3`、`audiobooks/<id>/cover.jpg`。
