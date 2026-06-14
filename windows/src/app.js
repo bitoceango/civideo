@@ -1,7 +1,7 @@
 // ===== 状态 =====
 const S = {
   view: 'loading', tab: 'home', sub: null,
-  videos: [], progress: {}, rules: {dailyLimitMin:null,allowedStart:null,allowedEnd:null},
+  videos: [], audiobooks: [], progress: {}, rules: {dailyLimitMin:null,allowedStart:null,allowedEnd:null},
   todayWatchedSec: 0, weekWatchedSec: 0, loadError: null,
   favorites: JSON.parse(localStorage.getItem('cv.favorites')||'[]'),
 };
@@ -32,6 +32,12 @@ function currentBlock(){ const r=S.rules;
     if(!inw)return 'hours';}
   if(r.dailyLimitMin!=null&&S.todayWatchedSec>=r.dailyLimitMin*60)return 'limit';
   return null; }
+// 听书只受「时段」管控（睡前不放），不计入每日观看上限（护眼初衷：鼓励听、少看屏）。
+function hoursBlock(){ const r=S.rules;
+  if(r.allowedStart!=null&&r.allowedEnd!=null){const m=API.minuteOfDay();
+    const inw=r.allowedStart<=r.allowedEnd?(m>=r.allowedStart&&m<r.allowedEnd):(m>=r.allowedStart||m<r.allowedEnd);
+    if(!inw)return 'hours';}
+  return null; }
 function catIcon(n){ n=n||'';
   if(/科学|自然/.test(n))return'🔬'; if(/动物/.test(n))return'🐾'; if(/英语|english/i.test(n))return'🔤';
   if(/数/.test(n))return'🔢'; if(/国学|古诗|语文/.test(n))return'📖'; if(/艺术|画|音乐/.test(n))return'🎨';
@@ -42,7 +48,7 @@ function catColor(n){ let h=2166136261; for(const c of (n||'')) h=(h^c.charCodeA
 async function reload(){
   try{
     const [lib,prog] = await Promise.all([API.library(), API.progress()]);
-    S.videos = lib.videos||[]; S.progress = prog.progress||{}; S.rules = prog.rules||S.rules;
+    S.videos = lib.videos||[]; S.audiobooks = lib.audiobooks||[]; S.progress = prog.progress||{}; S.rules = prog.rules||S.rules;
     S.todayWatchedSec = prog.watchedSec||0; S.weekWatchedSec = prog.weekSec||0; S.loadError=null;
   }catch(e){ if(e.message==='unauthorized'){ S.view='activation'; render(); return; } S.loadError=e.message; }
 }
@@ -53,7 +59,7 @@ function render(){
   if(S.view==='loading'){ el.innerHTML=`<div class="center"><div style="color:var(--muted)">加载中…</div></div>`; return; }
   if(S.view==='activation'){ el.innerHTML=activationHTML(); bindActivation(); return; }
   if(S.view==='player'){ return; }
-  el.innerHTML = `<div class="tabs">${['home','category','mine'].map(t=>`<button data-tab="${t}" class="${S.tab===t?'on':''}">${({home:'首页',category:'分类',mine:'我的'})[t]}</button>`).join('')}</div>
+  el.innerHTML = `<div class="tabs">${['home','category','listen','mine'].map(t=>`<button data-tab="${t}" class="${S.tab===t?'on':''}">${({home:'首页',category:'分类',listen:'听书',mine:'我的'})[t]}</button>`).join('')}</div>
     <div class="screen" id="screen">${screenHTML()}</div>`;
   bindMain();
 }
@@ -61,6 +67,7 @@ function rerenderScreen(){ const s=document.getElementById('screen'); if(s){s.in
 function screenHTML(){
   if(S.tab==='home') return homeHTML();
   if(S.tab==='category') return S.sub?.type==='series'?seriesDetailHTML(S.sub.name):S.sub?.type==='category'?catDetailHTML(S.sub.id):categoryHTML();
+  if(S.tab==='listen') return S.sub?.type==='book'?bookDetailHTML(S.sub.id):listenHTML();
   if(S.tab==='mine') return mineHTML();
   return '';
 }
@@ -136,6 +143,53 @@ function seriesDetailHTML(name){ const g=seriesGroups().find(g=>g.id===name); co
   return `<div><div class="back-bar"><button class="icon-btn" data-back>‹</button><h2>${esc(name)} · 共 ${vids.length} 集</h2></div>
     <div class="grid-wrap">${vids.map(v=>posterHTML(v,false)).join('')}</div></div>`; }
 
+// ===== 听书 =====
+function bookById(id){ return S.audiobooks.find(b=>b.id===id); }
+function bookGroups(){ const order=[],map={};
+  for(const b of S.audiobooks){ const k=b.category||'未分类'; if(!map[k]){order.push(k);map[k]=[]} map[k].push(b); }
+  return order.map(k=>({id:k,books:map[k]})); }
+function abResume(){ try{return JSON.parse(localStorage.getItem('cv.abResume')||'{}')}catch{return{}} }
+function setAbResume(bookId,ci,pos){ const m=abResume(); m[bookId]={ci,pos:Math.floor(pos||0)}; localStorage.setItem('cv.abResume',JSON.stringify(m)); }
+function bookResume(b){ const r=abResume()[b.id]; if(!r)return null; const ch=(b.chapters||[])[r.ci]; if(!ch)return null; return {ci:r.ci,pos:r.pos,ch}; }
+function continueBooks(){ return S.audiobooks.filter(b=>{const r=bookResume(b);return r&&(r.pos>3||r.ci>0)}); }
+function bookCover(b){ return b.coverUrl
+  ? `<img src="${API.mediaUrl(b.coverUrl)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'bk-ph',innerHTML:'📖'}))">`
+  : `<div class="bk-ph">📖</div>`; }
+function bookCardHTML(b){ const r=bookResume(b), n=(b.chapters||[]).length;
+  return `<button class="bookcard" data-book="${esc(b.id)}">
+    <div class="bk-art" style="background:${catColor(b.category)}22">${bookCover(b)}<span class="bk-badge">🎧 ${n}章</span>
+    ${r?`<span class="bk-cont">继续 第${r.ci+1}章</span>`:''}</div>
+    <div class="bk-meta"><div class="t">${esc(b.title)}</div><div class="s">${esc(b.author||'听书')} · ${runtime(b.totalDurationSec||0)}</div></div></button>`; }
+function bookRowHTML(title,books){ return `<div class="section"><div class="sec-head"><h2>${esc(title)}</h2></div>
+  <div class="rowscroll">${books.map(bookCardHTML).join('')}</div></div>`; }
+function listenHTML(){
+  if(!S.audiobooks.length) return `<div class="empty"><div class="big">🎧</div><div>还没有听书</div>
+    <div style="font-size:13px;color:var(--faint)">家长用 cpv audiobook 上传后这里就会出现</div></div>`;
+  let html='<div class="listen-head"><h1>🎧 听书</h1><p>闭上眼睛，用耳朵听故事</p></div>';
+  const cb=continueBooks(); if(cb.length) html+=bookRowHTML('继续收听',cb);
+  for(const g of bookGroups()) html+=`<div class="section"><div class="sec-head"><h2>${esc(g.id)}</h2><span class="sub">${g.books.length} 本</span></div>
+    <div class="book-grid">${g.books.map(bookCardHTML).join('')}</div></div>`;
+  return `<div>${html}<div style="height:30px"></div></div>`;
+}
+function bookDetailHTML(id){ const b=bookById(id); if(!b)return listenHTML();
+  const r=bookResume(b), chs=b.chapters||[];
+  return `<div><div class="back-bar"><button class="icon-btn" data-back>‹</button><h2>${esc(b.title)}</h2></div>
+    <div class="book-hero">
+      <div class="bk-art lg" style="background:${catColor(b.category)}22">${bookCover(b)}</div>
+      <div class="bk-info"><div class="t">${esc(b.title)}</div><div class="a">${esc(b.author||'听书')}</div>
+        <div class="d">${esc(b.category||'')} · ${chs.length} 章 · ${runtime(b.totalDurationSec||0)}</div>
+        <div class="row-h" style="gap:10px;margin-top:16px">
+          <button class="primary" data-book-play="${esc(b.id)}" style="width:auto;padding:12px 28px">${r?`▶ 继续收听 第${r.ci+1}章`:'▶ 开始收听'}</button>
+          <button class="pill" data-book-fav="${esc(b.id)}" style="color:${isFav(b)?'var(--pink)':'var(--muted)'}">${isFav(b)?'♥ 已收藏':'♡ 收藏'}</button></div>
+      </div></div>
+    <div class="ch-list">${chs.map((c,i)=>`<button class="ch-row" data-chapter="${i}" data-cbook="${esc(b.id)}">
+      <span class="ci">${String(i+1).padStart(2,'0')}</span>
+      <span class="ct">${esc(c.title||'第 '+(i+1)+' 章')}</span>
+      <span class="cd">${c.durationSec?clock(c.durationSec):''}</span>
+      ${r&&r.ci===i?'<span class="cnow">▶</span>':''}</button>`).join('')}</div>
+    <div style="height:30px"></div></div>`;
+}
+
 // ===== 我的 =====
 let mineUnlocked=false, minePin='';
 const ED={lim:60,limOn:false,hr:false,hs:16,he:20};
@@ -179,6 +233,10 @@ function bindScreen(){
   el.querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>{ S.tab='category'; S.sub={type:'category',id:b.dataset.cat}; render(); });
   el.querySelectorAll('[data-series]').forEach(b=>b.onclick=()=>{ if(S.tab!=='category')S.tab='category'; S.sub={type:'series',name:b.dataset.series}; render(); });
   el.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>{ S.sub=null; render(); });
+  el.querySelectorAll('[data-book]').forEach(b=>b.onclick=()=>{ S.tab='listen'; S.sub={type:'book',id:b.dataset.book}; render(); });
+  el.querySelectorAll('[data-chapter]').forEach(b=>b.onclick=()=>{ openAudio(b.dataset.cbook, parseInt(b.dataset.chapter)); });
+  el.querySelectorAll('[data-book-play]').forEach(b=>b.onclick=()=>{ const bk=bookById(b.dataset.bookPlay), r=bk&&bookResume(bk); openAudio(b.dataset.bookPlay, r?r.ci:0); });
+  el.querySelectorAll('[data-book-fav]').forEach(b=>b.onclick=()=>{ const bk=bookById(b.dataset.bookFav); if(bk){toggleFav(bk);rerenderScreen();bindScreen();} });
   const rf=document.getElementById('refresh'); if(rf)rf.onclick=async()=>{ await reload(); rerenderScreen(); };
   el.querySelectorAll('[data-key]').forEach(b=>b.onclick=()=>{ const k=b.dataset.key;
     if(k==='d')minePin=minePin.slice(0,-1); else if(k==='x')minePin=''; else if(minePin.length<4)minePin+=k;
@@ -342,6 +400,91 @@ function teardownPlayer(){ if(!P)return; clearInterval(P.heartbeat); clearTimeou
 async function closePlayer(){ if(P)await reportTick(); teardownPlayer(); S.view='main'; render(); }
 function autoNext(){ const nx=nextEp(P.v); reportTick(); if(nx)goTo(nx); else renderControls(); }
 async function goTo(next){ await reportTick(); teardownPlayer(); openPlayer(next); }
+
+// ===== 听书播放器（音频，无画面） =====
+let A=null;
+function openAudio(bookId, ci){
+  const b=bookById(bookId); if(!b)return; const chs=b.chapters||[];
+  if(!(ci>=0&&ci<chs.length))ci=0;
+  const blk=hoursBlock(); if(blk){ showBreak(blk); return; }
+  S.view='player'; root().innerHTML=''; document.getElementById('player')?.remove();
+  const ov=document.createElement('div'); ov.className='player audio'; ov.id='player'; document.body.appendChild(ov);
+  const audio=document.createElement('audio'); audio.autoplay=true;
+  const r=bookResume(b), startAt=(r&&r.ci===ci)?r.pos:0;
+  A={b,ci,audio,ov,startAt,lastReported:startAt,heartbeat:null,scrubbing:false};
+  audio.src=API.mediaUrl(chs[ci].audioUrl); ov.appendChild(audio);
+  audio.addEventListener('loadedmetadata',()=>{ if(startAt>1&&startAt<audio.duration)audio.currentTime=startAt; renderAudio(); });
+  audio.addEventListener('timeupdate',()=>{ if(!A.scrubbing)updateAScrub(); });
+  audio.addEventListener('play',renderAudio);
+  audio.addEventListener('pause',renderAudio);
+  audio.addEventListener('ended',audioEnded);
+  renderAudio();
+  A.heartbeat=setInterval(reportATick,10000);
+}
+function curChapter(){ return (A.b.chapters||[])[A.ci]; }
+function aPrev(){ return A.ci>0?A.ci-1:null; }
+function aNext(){ return A.ci+1<(A.b.chapters||[]).length?A.ci+1:null; }
+function renderAudio(){
+  if(!A)return; const b=A.b, audio=A.audio, c=curChapter(), n=(b.chapters||[]).length, prev=aPrev(), next=aNext();
+  let ov=document.getElementById('aov'); if(ov)ov.remove();
+  ov=document.createElement('div'); ov.className='audio-np'; ov.id='aov'; A.ov.appendChild(ov);
+  ov.innerHTML=`
+    <div class="np-top"><button class="icon-btn" id="aback" style="background:rgba(255,255,255,.12);color:#fff">‹</button>
+      <div class="spacer"></div><div class="np-book">${esc(b.title)}</div><div class="spacer"></div>
+      <button class="icon-btn" id="afav" style="background:rgba(255,255,255,.12);color:${isFav(b)?'var(--pink)':'#fff'}">${isFav(b)?'♥':'♡'}</button></div>
+    <div class="np-cover" style="background:${catColor(b.category)}33">${bookCover(b)}</div>
+    <div class="np-title">${esc(c.title||'第 '+(A.ci+1)+' 章')}</div>
+    <div class="np-sub">${esc(b.author||'听书')} · 第 ${A.ci+1}/${n} 章</div>
+    <div class="np-scrub"><span class="tm" id="atcur">0:00</span>
+      <div class="track" id="atrack"><div class="fill" id="afill"></div><div class="knob" id="aknob"></div></div>
+      <span class="tm" id="atrem" style="text-align:right">0:00</span></div>
+    <div class="np-ctrls">
+      <button class="cbtn sm ${prev==null?'dis':''}" id="aprev">⏮</button>
+      <button class="cbtn sm" id="ab15">⟲</button>
+      <button class="cbtn" id="aplay">${audio.paused?'▶':'⏸'}</button>
+      <button class="cbtn sm" id="af15">⟳</button>
+      <button class="cbtn sm ${next==null?'dis':''}" id="anext">⏭</button></div>
+    <div class="np-tools"><select class="tool" id="arate" style="background:#1c1f25">${SPEEDS.map(s=>`<option value="${s}" ${audio.playbackRate===s?'selected':''}>${s}×</option>`).join('')}</select>
+      <button class="tool" id="alist">章节</button></div>`;
+  ov.querySelector('#aback').onclick=closeAudio;
+  ov.querySelector('#afav').onclick=()=>{toggleFav(b);renderAudio()};
+  ov.querySelector('#aplay').onclick=()=>{audio.paused?audio.play():audio.pause()};
+  ov.querySelector('#ab15').onclick=()=>{audio.currentTime=Math.max(0,audio.currentTime-15)};
+  ov.querySelector('#af15').onclick=()=>{audio.currentTime=Math.min(audio.duration||1e9,audio.currentTime+15)};
+  if(prev!=null)ov.querySelector('#aprev').onclick=()=>audioGoTo(prev);
+  if(next!=null)ov.querySelector('#anext').onclick=()=>audioGoTo(next);
+  ov.querySelector('#arate').onchange=e=>{audio.playbackRate=parseFloat(e.target.value)};
+  ov.querySelector('#alist').onclick=showAChapters;
+  const track=ov.querySelector('#atrack');
+  const seek=e=>{const rc=track.getBoundingClientRect();const x=Math.max(0,Math.min(1,(e.clientX-rc.left)/rc.width));audio.currentTime=x*(audio.duration||0);updateAScrub();};
+  track.onmousedown=e=>{A.scrubbing=true;seek(e);const mv=ev=>seek(ev);const up=()=>{A.scrubbing=false;document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up)};document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);};
+  updateAScrub();
+}
+function updateAScrub(){
+  if(!A)return; const a=A.audio, d=a.duration||0, c=a.currentTime||0, pct=d?c/d*100:0;
+  const fill=document.getElementById('afill'); if(fill)fill.style.width=pct+'%';
+  const knob=document.getElementById('aknob'); if(knob)knob.style.left=pct+'%';
+  const tc=document.getElementById('atcur'); if(tc)tc.textContent=clock(c);
+  const tr=document.getElementById('atrem'); if(tr)tr.textContent='-'+clock(Math.max(0,d-c));
+}
+function showAChapters(){
+  const b=A.b, chs=b.chapters||[];
+  const sh=document.createElement('div'); sh.className='breakov'; sh.style.background='rgba(0,0,0,.88)'; sh.style.zIndex='10';
+  sh.innerHTML=`<div style="width:480px;max-height:80vh;overflow:auto;text-align:left">
+    <div class="row-h" style="padding:0 4px 12px"><h2 style="margin:0">${esc(b.title)}</h2><div class="spacer"></div><button class="icon-btn" id="acx">✕</button></div>
+    ${chs.map((c,i)=>`<button data-ach="${i}" style="display:flex;gap:12px;width:100%;padding:10px;border-radius:12px;${i===A.ci?'background:var(--card)':''};align-items:center;text-align:left">
+      <span style="color:var(--faint);min-width:28px">${String(i+1).padStart(2,'0')}</span>
+      <span style="flex:1;font-weight:600;color:${i===A.ci?'var(--accent-hi)':'#fff'}">${esc(c.title||'第 '+(i+1)+' 章')}</span>
+      <span style="color:var(--faint);font-size:13px">${c.durationSec?clock(c.durationSec):''}</span></button>`).join('')}</div>`;
+  A.ov.appendChild(sh);
+  sh.querySelector('#acx').onclick=()=>sh.remove();
+  sh.querySelectorAll('[data-ach]').forEach(btn=>btn.onclick=()=>{const i=parseInt(btn.dataset.ach);sh.remove();if(i!==A.ci)audioGoTo(i);});
+}
+function reportATick(){ if(!A)return; const pos=Math.floor(A.audio.currentTime||0); setAbResume(A.b.id,A.ci,pos); A.lastReported=pos; }
+function teardownAudio(){ if(!A)return; clearInterval(A.heartbeat); A.audio.pause(); A.ov.remove(); A=null; }
+function closeAudio(){ if(A){reportATick();teardownAudio();} S.view='main'; S.tab='listen'; render(); }
+function audioGoTo(i){ if(A)reportATick(); const id=A.b.id; teardownAudio(); openAudio(id,i); }
+function audioEnded(){ if(!A)return; const n=aNext(); if(n!=null)audioGoTo(n); else { setAbResume(A.b.id,A.ci,0); renderAudio(); } }
 
 // ===== 初始化 =====
 (async function init(){
