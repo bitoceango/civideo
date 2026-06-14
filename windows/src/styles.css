@@ -109,14 +109,17 @@ img{ -webkit-user-drag:none }
 
 /* ---------- 播放器 ---------- */
 .player{position:fixed;inset:0;background:#000;z-index:100}
-.player video{width:100%;height:100%;background:#000}
+.player video{width:100%;height:100%;background:#000;pointer-events:none}
+/* 控件层挂 body 顶层（z-index 高于 .player），避免 WKWebView 原生视频视图吞掉点击 */
+.player-chrome{position:fixed;inset:0;z-index:120}
 .pl-ov{position:absolute;inset:0;transition:opacity .25s;background:linear-gradient(to bottom,rgba(0,0,0,.5),transparent 22%,transparent 60%,rgba(0,0,0,.75))}
 .pl-ov.hide{opacity:0;pointer-events:none}
 .pl-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:16px;padding:calc(20px + env(safe-area-inset-top)) calc(26px + env(safe-area-inset-right)) 20px calc(26px + env(safe-area-inset-left))}
 .pl-top .t{font-size:17px;font-weight:700}
 .pl-top .s{font-size:13px;color:rgba(255,255,255,.6)}
-.pl-center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:56px}
-.cbtn{width:80px;height:80px;border-radius:50%;display:grid;place-items:center;color:#fff;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.35);font-size:34px}
+/* inset:0 满屏会盖住上/下栏的按钮——本身不接收点击，只让其中的圆钮接收 */
+.pl-center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:56px;pointer-events:none}
+.cbtn{width:80px;height:80px;border-radius:50%;display:grid;place-items:center;color:#fff;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.35);font-size:34px;pointer-events:auto}
 .cbtn.sm{width:58px;height:58px;font-size:24px}
 .cbtn:hover{background:rgba(255,255,255,.22)}
 .pl-bot{position:absolute;left:0;right:0;bottom:0;padding:0 calc(26px + env(safe-area-inset-right)) calc(22px + env(safe-area-inset-bottom)) calc(26px + env(safe-area-inset-left))}

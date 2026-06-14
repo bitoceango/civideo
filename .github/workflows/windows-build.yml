@@ -28,6 +28,19 @@ jobs:
         with:
           workspaces: windows/src-tauri
 
+      - name: 拉取 sidecar 二进制（yt-dlp + ffmpeg，供家长上传/网址下载）
+        shell: bash
+        run: |
+          BIN="$GITHUB_WORKSPACE/windows/src-tauri/binaries"
+          mkdir -p "$BIN"
+          curl -fsSL -o "$BIN/yt-dlp-x86_64-pc-windows-msvc.exe" \
+            https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
+          curl -fsSL -o ffmpeg.zip \
+            https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip
+          unzip -q ffmpeg.zip
+          cp "$(find . -path '*win64*' -name ffmpeg.exe | head -1)" "$BIN/ffmpeg-x86_64-pc-windows-msvc.exe"
+          ls -la "$BIN"
+
       - name: Build Tauri (Windows x64 .msi / .exe)
         uses: tauri-apps/tauri-action@v0
         env:

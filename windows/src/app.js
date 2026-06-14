@@ -227,6 +227,9 @@ function settingsHTML(){ const eye=parseInt(localStorage.getItem('cv.eyeCareMin'
         <input class="field" id="up-category" placeholder="分类（可空）" style="margin-top:0">
       </div>
       <button class="primary" id="up-pick" style="margin-top:10px">选择本地视频并上传</button>
+      <div style="height:10px"></div>
+      <input class="field" id="up-url" placeholder="或粘贴网址（YouTube / Bilibili …）" style="margin-top:0">
+      <button class="primary" id="up-url-go" style="margin-top:8px;background:var(--card-hi);color:var(--text)">⬇ 网址下载并上传</button>
       <div id="up-status" style="font-size:13px;color:var(--faint);margin-top:8px"></div>
     </div></div>`:''}
   <div id="serr" style="color:#E06B6B;font-size:13px;margin:8px 0"></div>
@@ -264,6 +267,7 @@ function bindSettings(el){
   q('[data-mlock]')&&(q('[data-mlock]').onclick=()=>{mineUnlocked=false;minePin='';rerenderScreen();bindScreen();});
   q('[data-logout]')&&(q('[data-logout]').onclick=()=>{API.logout();S.view='activation';render();});
   q('#up-pick')&&(q('#up-pick').onclick=uploadLocalVideo);
+  q('#up-url-go')&&(q('#up-url-go').onclick=uploadFromUrl);
   el.querySelectorAll('[data-lim]').forEach(b=>b.onclick=()=>{ED.limOn=b.dataset.lim==='on';rerenderScreen();bindScreen();});
   el.querySelectorAll('[data-hr]').forEach(b=>b.onclick=()=>{ED.hr=b.dataset.hr==='on';rerenderScreen();bindScreen();});
   el.querySelectorAll('[data-eye]').forEach(b=>b.onclick=()=>{localStorage.setItem('cv.eyeCareMin',b.dataset.eye);rerenderScreen();bindScreen();});
@@ -294,6 +298,20 @@ const cvNative = {
   async put(url, bytes, contentType){
     const res=await window.__TAURI__.http.fetch(url,{method:'PUT',headers:{'Content-Type':contentType},body:bytes});
     return res.status;
+  },
+  get canDownload(){ return !!(window.__TAURI__ && window.__TAURI__.shell && window.__TAURI__.path); },
+  // 用捆绑的 yt-dlp 下载网址到本机临时 mp4，返回文件路径。
+  async downloadVideo(url){
+    const sh=window.__TAURI__.shell, path=window.__TAURI__.path;
+    const tmp=await path.tempDir();
+    const out=await path.join(tmp, 'cv-dl-'+Math.random().toString(36).slice(2,10)+'.mp4');
+    const args=['--no-playlist','--no-warnings','--no-part',
+      '--extractor-args','youtube:player_client=web,tv,web_safari',
+      '-f','best[ext=mp4]/best',
+      '-o',out, url];
+    const res=await sh.Command.sidecar('binaries/yt-dlp', args).execute();
+    if(res.code!==0) throw new Error('下载失败：'+String(res.stderr||res.stdout||'').replace(/\s+/g,' ').slice(-160));
+    return out;
   },
 };
 
@@ -351,6 +369,25 @@ async function uploadLocalVideo(){
     set('✅ 上传成功！'); const ti=document.getElementById('up-title'); if(ti)ti.value=''; await reload(); toast('已加入视频库');
   }catch(e){ set('出错：'+(e?.message||e)); }
 }
+async function uploadFromUrl(){
+  const st=document.getElementById('up-status'); const set=m=>{ if(st)st.textContent=m; };
+  const title=(document.getElementById('up-title')?.value||'').trim();
+  const url=(document.getElementById('up-url')?.value||'').trim();
+  if(!title){ set('请先填标题'); return; }
+  if(!/^https?:\/\//i.test(url)){ set('请填有效网址（http/https）'); return; }
+  if(!cvNative.canDownload){ set('此版本不支持网址下载'); return; }
+  const series=(document.getElementById('up-series')?.value||'').trim();
+  const category=(document.getElementById('up-category')?.value||'').trim();
+  try{
+    set('下载中…（可能要几十秒到几分钟）');
+    const path=await cvNative.downloadVideo(url);
+    await uploadFromPath(path,{title,series,category,source:url},set);
+    set('✅ 下载并上传成功！');
+    const ti=document.getElementById('up-title'); if(ti)ti.value='';
+    const ui=document.getElementById('up-url'); if(ui)ui.value='';
+    await reload(); toast('已加入视频库');
+  }catch(e){ set('出错：'+(e?.message||e)); }
+}
 
 // ===== 播放器 =====
 let P=null;
@@ -361,23 +398,25 @@ function openPlayer(v){
   const ov=document.createElement('div'); ov.className='player'; ov.id='player'; document.body.appendChild(ov);
   const video=document.createElement('video'); video.src=API.mediaUrl(v.videoUrl); video.autoplay=true; video.setAttribute('playsinline','');
   ov.appendChild(video);
+  // 控件层挂到 body 顶层（脱离视频的原生视图树，否则 WKWebView 下点击被视频吞掉）
+  const chrome=document.createElement('div'); chrome.className='player-chrome'; chrome.id='player-chrome'; document.body.appendChild(chrome);
   const startAt=S.progress[v.id]||0;
-  P={v,video,ov,startAt,lastReported:startAt,eyeAccum:0,heartbeat:null,hideTimer:null,scrubbing:false,locked:false,ended:false};
+  P={v,video,ov,chrome,startAt,lastReported:startAt,eyeAccum:0,heartbeat:null,hideTimer:null,scrubbing:false,locked:false,ended:false};
   video.addEventListener('loadedmetadata',()=>{ if(startAt>1)video.currentTime=startAt; renderControls(); });
   video.addEventListener('timeupdate',()=>{ if(!P.scrubbing)updateScrub(); });
   video.addEventListener('progress',()=>{ if(!P.scrubbing)updateScrub(); });
   video.addEventListener('play',()=>{renderControls();poke()});
   video.addEventListener('pause',renderControls);
   video.addEventListener('ended',()=>{ P.ended=true; autoNext(); });
-  ov.addEventListener('mousemove',()=>{ if(!P.locked)poke(); });
-  ov.addEventListener('pointerdown',()=>{ if(!P.locked)poke(); }); // 触屏点一下显隐控件
+  chrome.addEventListener('mousemove',()=>{ if(!P.locked)poke(); });
+  chrome.addEventListener('pointerdown',()=>{ if(!P.locked)poke(); }); // 触屏/桌面点一下显隐控件
   renderControls(); poke();
   P.heartbeat=setInterval(reportTick,10000);
 }
 function renderControls(){
   if(!P)return; const v=P.v, video=P.video, idx=epIndex(v);
   let ov=document.getElementById('plov'); if(ov)ov.remove();
-  ov=document.createElement('div'); ov.className='pl-ov'+(P.locked?'':''); ov.id='plov'; P.ov.appendChild(ov);
+  ov=document.createElement('div'); ov.className='pl-ov'+(P.locked?'':''); ov.id='plov'; P.chrome.appendChild(ov);
   if(P.locked){ ov.innerHTML=`<div class="eyecare" id="lockhint" style="background:rgba(0,0,0,.4);display:${P.showLockHint?'grid':'none'}">
     <div><div class="big">🔒</div><h2>已锁定</h2><p>长按下面的按钮解锁</p>
     <button class="cbtn" id="unlock" style="margin:14px auto 0;background:var(--accent);color:var(--on-accent)">🔓</button></div></div>`;
@@ -449,7 +488,7 @@ function showEpisodes(){
       <img src="${API.mediaUrl(e.posterUrl)}" style="width:96px;height:60px;object-fit:cover;border-radius:8px" onerror="this.style.visibility='hidden'">
       <div><div style="font-size:12px;color:var(--faint)">第 ${i+1} 集</div><div style="font-weight:600;color:${e.id===v.id?'var(--accent-hi)':'#fff'}">${esc(e.title)}</div></div></button>`).join('')}
   </div>`;
-  P.ov.appendChild(sh);
+  P.chrome.appendChild(sh);
   sh.querySelector('#epx').onclick=()=>sh.remove();
   sh.querySelectorAll('[data-ep]').forEach(b=>b.onclick=()=>{const e=list.find(x=>x.id===b.dataset.ep);sh.remove();if(e&&e.id!==v.id)goTo(e);});
 }
@@ -464,7 +503,7 @@ async function reportTick(){
 }
 function triggerEyeCare(){
   P.video.pause();
-  const e=document.createElement('div'); e.className='eyecare'; e.id='eyeov'; P.ov.appendChild(e);
+  const e=document.createElement('div'); e.className='eyecare'; e.id='eyeov'; P.chrome.appendChild(e);
   let cd=20;
   const paint=()=>{ e.innerHTML=`<div><div class="big">👀</div><h2>看了一会儿啦，休息下眼睛</h2><p>看看远处，眨眨眼，放松一下～</p>
     ${cd>0?`<div class="cd">${cd}</div>`:`<button class="primary" id="eyego" style="width:auto;padding:12px 26px;margin-top:10px">继续观看</button>`}</div>`;
@@ -484,8 +523,8 @@ function showBreak(reason){
     <button class="primary" id="bback" style="width:auto;padding:12px 26px;margin-top:24px">返回</button></div>`;
   b.querySelector('#bback').onclick=()=>{ ov.remove(); S.view='main'; render(); };
 }
-function teardownPlayer(){ if(!P)return; clearInterval(P.heartbeat); clearTimeout(P.hideTimer); P.video.pause(); P.ov.remove(); P=null; }
-async function closePlayer(){ if(P)await reportTick(); teardownPlayer(); S.view='main'; render(); }
+function teardownPlayer(){ if(!P)return; clearInterval(P.heartbeat); clearTimeout(P.hideTimer); P.video.pause(); P.ov.remove(); if(P.chrome)P.chrome.remove(); P=null; }
+async function closePlayer(){ if(P){ try{ reportTick(); }catch(e){} } teardownPlayer(); S.view='main'; render(); }
 function autoNext(){ const nx=nextEp(P.v); reportTick(); if(nx)goTo(nx); else renderControls(); }
 async function goTo(next){ await reportTick(); teardownPlayer(); openPlayer(next); }
 
