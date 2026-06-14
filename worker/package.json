@@ -16,5 +16,8 @@
   "type": "commonjs",
   "devDependencies": {
     "wrangler": "^4.100.0"
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
   }
 }

@@ -8,6 +8,8 @@
 //   POST /api/progress         上报某视频播放进度 + 累加今日时长
 // 所有 /api/* 与 /media/* （除 activate）都需 Authorization: Bearer <设备令牌>
 
+import { AwsClient } from 'aws4fetch';
+
 const MANIFEST_KEY = 'manifest.json';
 
 const json = (data, status = 200, extra = {}) =>
@@ -304,6 +306,77 @@ async function handleSaveRules(request, env, device) {
   return json({ ok: true });
 }
 
+// ===== 开发者模式：家长自助上传（需家长 PIN）。R2 密钥仅在 Worker，App 走预签名直传 =====
+function parentPinOk(env, pin) {
+  return !!env.PARENT_PIN && String(pin) === String(env.PARENT_PIN);
+}
+
+// 生成 R2(S3 兼容) 的短时效预签名 PUT URL。App 拿到后原生 PUT 直传，App 内不存任何密钥。
+async function presignPut(env, key, expiresSec = 900) {
+  const aws = new AwsClient({
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    service: 's3',
+    region: 'auto',
+  });
+  const url = new URL(`https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET}/${key}`);
+  url.searchParams.set('X-Amz-Expires', String(expiresSec));
+  const signed = await aws.sign(url.toString(), { method: 'PUT', aws: { signQuery: true } });
+  return signed.url;
+}
+
+// 家长申请上传：返回新 id + 视频/海报的预签名 PUT URL。
+async function handleAdminUploadUrl(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400); }
+  if (!parentPinOk(env, body?.pin)) return json({ error: 'invalid_pin' }, 403);
+  if (!env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY || !env.R2_ACCOUNT_ID || !env.R2_BUCKET) {
+    return json({ error: 'r2_not_configured' }, 500);
+  }
+  const id = 'u' + crypto.randomUUID().replace(/-/g, '').slice(0, 10);
+  const videoKey = `videos/${id}/video.mp4`;
+  const posterKey = `videos/${id}/poster.jpg`;
+  const [videoPut, posterPut] = await Promise.all([presignPut(env, videoKey), presignPut(env, posterKey)]);
+  return json({ ok: true, id, videoKey, posterKey, videoPut, posterPut });
+}
+
+// 家长把已直传到 R2 的视频写入 manifest（结构与 cpv 一致）。
+async function handleAdminManifestAdd(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400); }
+  if (!parentPinOk(env, body?.pin)) return json({ error: 'invalid_pin' }, 403);
+  const id = String(body?.id || '').trim();
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) return json({ error: 'bad_id' }, 400);
+
+  const obj = await env.BUCKET.get(MANIFEST_KEY);
+  const manifest = obj ? JSON.parse(await obj.text()) : { version: 1, updatedAt: null, videos: [] };
+  if (!Array.isArray(manifest.videos)) manifest.videos = [];
+
+  const entry = {
+    id,
+    title: String(body.title || id).slice(0, 200),
+    series: body.series ? String(body.series).slice(0, 200) : null,
+    category: body.category ? String(body.category).slice(0, 100) : null,
+    video: `videos/${id}/video.mp4`,
+    poster: `videos/${id}/poster.jpg`,
+    durationSec: Number(body.durationSec) || 0,
+    width: Number(body.width) || null,
+    height: Number(body.height) || null,
+    sizeBytes: Number(body.sizeBytes) || null,
+    source: body.source ? String(body.source).slice(0, 500) : null,
+    createdAt: new Date().toISOString(),
+  };
+  const i = manifest.videos.findIndex((v) => v.id === id);
+  if (i >= 0) { entry.createdAt = manifest.videos[i].createdAt || entry.createdAt; manifest.videos[i] = entry; }
+  else manifest.videos.push(entry);
+  manifest.updatedAt = new Date().toISOString();
+
+  await env.BUCKET.put(MANIFEST_KEY, JSON.stringify(manifest, null, 2), {
+    httpMetadata: { contentType: 'application/json', cacheControl: 'no-store' },
+  });
+  return json({ ok: true, id, videos: manifest.videos.length });
+}
+
 function ruleSummary(device) {
   return {
     dailyLimitMin: device.daily_limit_min,
@@ -411,6 +484,14 @@ export default {
       }
       if (path === '/api/rules' && request.method === 'POST') {
         return await handleSaveRules(request, env, device);
+      }
+
+      // 开发者模式（家长 PIN）：自助上传
+      if (path === '/api/admin/upload-url' && request.method === 'POST') {
+        return await handleAdminUploadUrl(request, env);
+      }
+      if (path === '/api/admin/manifest-add' && request.method === 'POST') {
+        return await handleAdminManifestAdd(request, env);
       }
 
       return json({ error: 'not_found' }, 404);
