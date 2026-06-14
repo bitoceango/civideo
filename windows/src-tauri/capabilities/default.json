@@ -20,6 +20,13 @@
         { "url": "https://video.xyt1989loveson.uk/*" },
         { "url": "https://*.r2.cloudflarestorage.com/*" }
       ]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        { "name": "binaries/yt-dlp", "sidecar": true, "args": true },
+        { "name": "binaries/ffmpeg", "sidecar": true, "args": true }
+      ]
     }
   ]
 }
