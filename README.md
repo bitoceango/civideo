@@ -153,24 +153,41 @@ node src/index.js upload video.mp4 --title "标题" --series "系列名" --categ
 
 需要本机 `ffmpeg`（`brew install ffmpeg`）。
 
-**从 YouTube 批量导入**（在你自己的 Mac / 家庭网络上跑，数据中心 IP 会被 YouTube 拦）：
-```bash
-brew install yt-dlp ffmpeg
-bash cli/import-youtube.sh "<播放列表URL>" "动物兄弟 第五季" "科学"   # 下载720p+中文字幕 → 自动逐个上传
-```
+**从 YouTube / Bilibili 等导入视频**，三种方式任选：
+1. **桌面 App 内**（最省事）：家长中心 → 网址下载并上传，粘链接即可（自动用浏览器登录态绕 B 站风控）。
+2. **CLI 批量**（YouTube 播放列表整季）：
+   ```bash
+   brew install yt-dlp ffmpeg
+   bash cli/import-youtube.sh "<播放列表URL>" "动物兄弟 第五季" "科学"   # 720p+中文字幕 → 逐个上传
+   ```
+   > `import-youtube.sh` 已内置 `env -u NODE_OPTIONS` + `--extractor-args player_client=...` 绕过常见拦截；带 `--cookies-from-browser` 可下需登录内容。
+3. **任意下载器**（如 SnapAny）下到本地 → 用桌面 App「选择本地视频上传」入库（万能兜底）。
 
-### 3. 孩子端 App
+### 3. App（孩子看 + 家长传）
 
-```bash
-cd app
-brew install xcodegen
-# 个人构建可预填服务器地址，免每次手输（公开构建留空）：
-cp Local.example.xcconfig Local.xcconfig   # 然后填 CV_SERVER_HOST = 你的主机名（不带 https://）
-xcodegen generate
-open ChildVideo.xcodeproj
-```
+**最省事：下预编译包** → [Releases](../../releases)（Windows `.exe` / macOS `.dmg` / Android `.apk` / iOS `.ipa`）。首次启动在激活页填你的 **Worker 域名 + 设备激活密钥**。
 
-首次启动在激活页填入你的 **Worker 域名**（个人构建已由 `Local.xcconfig` 预填）+ **激活密钥**（`ACTIVATION_KEY`）即可。分发到家庭设备见 [`app/README.md`](app/README.md)（Mac 直接 Run；iPhone/iPad 用免费 Apple ID + SideStore）。
+**从源码构建：**
+
+- **Apple（iOS / macOS，SwiftUI · `app/`）**
+  ```bash
+  cd app && brew install xcodegen
+  cp Local.example.xcconfig Local.xcconfig   # 可填 CV_SERVER_HOST=你的主机名，免每次手输
+  xcodegen generate && open ChildVideo.xcodeproj
+  ```
+  Mac 直接 Run；iPhone/iPad 见 [`app/README.md`](app/README.md)（免费 Apple ID + SideStore）。
+
+- **Windows / macOS（Tauri · `windows/`，含家长上传）**
+  ```bash
+  cd windows
+  npx @tauri-apps/cli@2 build     # 本机出 .exe(Win) / .app+.dmg(Mac)；或 `dev` 开发模式跑
+  ```
+  桌面端进「我的 → 家长中心」（家长 PIN）后有 **📤 上传视频**：本地文件（单个/多选/整文件夹）+ ⬇ 网址下载（YouTube/Bilibili）。需把 `yt-dlp`/`ffmpeg` 按 target-triple 命名放进 `windows/src-tauri/binaries/`（CI 自动拉；本地手动放，见各 CI 步骤）。
+
+- **Android（Tauri · `android/`，纯消费端）**
+  复用 `windows/src` 的 Web UI，由 CI 出 arm64 APK（`.github/workflows/android-build.yml`），见 Release。
+
+> 所有端**共用同一后端**；首次启动填 Worker 域名 + 设备激活密钥即可（个人 Apple 构建可用 `Local.xcconfig` 预填）。
 
 ## 测试
 
@@ -184,6 +201,7 @@ PIN=<你的PIN> bash tests/e2e-backend.sh        # 端到端后端验收，退�
 
 - R2 桶保持**私有**，所有媒体请求经 Worker 校验设备令牌后才返回字节，R2 永不公开直连。
 - 家长 PIN 是 Worker secret，R2 密钥是本机环境变量，孩子姓名等**都不在仓库里**（放本地 `deploy.local.json`）。
+- **桌面端家长上传不内置任何长期密钥**：R2 写权限只在 Worker；App 向 Worker（家长 PIN 校验）换**短时效预签名 PUT URL** 直传 R2，密钥永不进 App/安装包（开源可拆包也安全）。捆绑的 yt-dlp 读浏览器 cookies 仅在本机使用、不上传。
 - **激活防爆破**（issue #16）：`/api/activate` 内置限流——同一 IP 连续失败 5 次即锁定 15 分钟（返回 `429`），计数持久化在 D1；可用环境变量 `MAX_ACTIVATION_FAILS` / `ACTIVATION_LOCK_MIN` 调整。⚠️ 自定义域名会进公开的 Certificate Transparency 日志（**域名不是秘密**），安全只靠 **PIN 强度 + 限流**，请设强 PIN。（升级老部署需重跑 `schema.sql` 以建 `activation_attempts` 表。）
 - **零代码加固**（可选，推荐叠加）：Cloudflare 控制台 → Security → WAF → Rate limiting rules，对表达式 `http.request.uri.path eq "/api/activate"` 设「每 IP 每分钟 ≤ 5 次，超出 Block」。
 - R2 出口免费 = 没有带宽账单可被「盗刷」。
