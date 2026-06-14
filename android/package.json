@@ -1,0 +1,9 @@
+{
+  "name": "childvideo-android",
+  "version": "0.1.0",
+  "private": true,
+  "description": "儿童视频 Android 客户端（Tauri v2，复用 windows/src 的 Web UI）",
+  "scripts": {
+    "build": "echo 静态前端（复用 ../windows/src），无需构建步骤"
+  }
+}

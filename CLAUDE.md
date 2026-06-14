@@ -6,6 +6,12 @@
 
 任何新需求/功能/改动，**必须先有需求文档（在 `docs/requirements/`，含 Epic 与 Story，参考 `docs/requirements/TEMPLATE.md`），再按 Story 建 GitHub issue（模板 `.github/ISSUE_TEMPLATE/feature_request.md`：目标/功能特性/改动范围/测试方案/验收方案），再开发、再提交（关联 issue 号）**。详见 `CONTRIBUTING.md`。**没有需求文档和 issue，不写代码。**
 
+## ⚠️ 三端同时实现（硬性规则）
+
+**任何面向用户的功能，必须同时落地到三端：Apple（macOS/iOS，SwiftUI，目录 `app/`）+ Windows（Tauri，目录 `windows/`）+ Android（Tauri，目录 `android/`，APK）。** 一个功能不能只做一端——需求文档的 Story/验收要覆盖三端，建 issue 时按端拆 Story 或在一个 issue 里列三端验收项。
+
+技术路线：**Windows 与 Android 复用同一套 Web UI（`windows/src` 的 `app.js`/`api.js`/`styles.css`），用 Tauri v2 分别出桌面安装包与 APK**；Apple 走 SwiftUI（独立一套）。即「两套代码（SwiftUI + Tauri-Web）覆盖三端」。改 Web UI 时 Windows/Android 自动同步；改功能逻辑时记得 SwiftUI 端也要跟上。
+
 ## 上传视频（AI 直接调用 CLI）
 
 前置：环境变量 `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET`（配置见 `cli/README.md`），本机需有 ffmpeg。首次使用先 `cd cli && npm install`。

@@ -1,0 +1,19 @@
+[package]
+name = "childvideo"
+version = "0.1.0"
+description = "儿童视频流媒体 Android 客户端"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "childvideo_lib"
+# cdylib 供 Android(JNI) 加载；staticlib/rlib 兼容桌面/测试
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
