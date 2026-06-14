@@ -56,9 +56,9 @@ jobs:
         working-directory: android
         run: cargo tauri android init
 
-      - name: Build APK（debug 签名，可直接侧载安装）
+      - name: Build APK（debug 签名，arm64 单架构瘦身，覆盖绝大多数手机）
         working-directory: android
-        run: cargo tauri android build --apk --debug -v
+        run: cargo tauri android build --apk --debug --target aarch64 -v
         env:
           RUST_BACKTRACE: 1
 
