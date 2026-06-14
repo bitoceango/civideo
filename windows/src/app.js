@@ -80,7 +80,7 @@ function activationHTML(){
     <input class="field" id="srv" placeholder="https://你的-worker-域名" value="${esc(API.server)}">
     <span class="lbl" style="text-align:left">设备名称</span>
     <input class="field" id="dev" value="Windows 电脑">
-    <input class="field" id="pin" type="password" placeholder="家长密码" style="margin-top:14px">
+    <input class="field" id="pin" type="password" placeholder="激活密码（家长给的激活密钥）" style="margin-top:14px">
     <div id="aerr" style="color:#E06B6B;font-size:13px;margin-top:10px"></div>
     <button class="primary" id="actbtn" style="margin-top:16px">激活</button></div></div>`;
 }
@@ -283,6 +283,7 @@ function openPlayer(v){
   video.addEventListener('pause',renderControls);
   video.addEventListener('ended',()=>{ P.ended=true; autoNext(); });
   ov.addEventListener('mousemove',()=>{ if(!P.locked)poke(); });
+  ov.addEventListener('pointerdown',()=>{ if(!P.locked)poke(); }); // 触屏点一下显隐控件
   renderControls(); poke();
   P.heartbeat=setInterval(reportTick,10000);
 }
@@ -334,7 +335,7 @@ function renderControls(){
   ov.querySelector('#vol').oninput=e=>{video.volume=parseFloat(e.target.value);video.muted=false;};
   const track=ov.querySelector('#track');
   const seek=e=>{const r=track.getBoundingClientRect();const x=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));video.currentTime=x*(video.duration||0);updateScrub();};
-  track.onmousedown=e=>{P.scrubbing=true;seek(e);const mv=ev=>seek(ev);const up=()=>{P.scrubbing=false;document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);poke()};document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);};
+  track.onpointerdown=e=>{P.scrubbing=true;seek(e);const mv=ev=>seek(ev);const up=()=>{P.scrubbing=false;document.removeEventListener('pointermove',mv);document.removeEventListener('pointerup',up);poke()};document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);};
   ov.querySelector('#eps')&&(ov.querySelector('#eps').onclick=showEpisodes);
   ov.querySelector('#next')&&(ov.querySelector('#next').onclick=()=>{if(nx)goTo(nx)});
   updateScrub();
@@ -457,7 +458,7 @@ function renderAudio(){
   ov.querySelector('#alist').onclick=showAChapters;
   const track=ov.querySelector('#atrack');
   const seek=e=>{const rc=track.getBoundingClientRect();const x=Math.max(0,Math.min(1,(e.clientX-rc.left)/rc.width));audio.currentTime=x*(audio.duration||0);updateAScrub();};
-  track.onmousedown=e=>{A.scrubbing=true;seek(e);const mv=ev=>seek(ev);const up=()=>{A.scrubbing=false;document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up)};document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);};
+  track.onpointerdown=e=>{A.scrubbing=true;seek(e);const mv=ev=>seek(ev);const up=()=>{A.scrubbing=false;document.removeEventListener('pointermove',mv);document.removeEventListener('pointerup',up)};document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);};
   updateAScrub();
 }
 function updateAScrub(){

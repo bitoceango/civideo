@@ -1,0 +1,65 @@
+name: Android Build (APK)
+
+# Tauri v2 Android：复用 windows/src 的 Web UI 打 APK。
+# 开发者不本地装 Android 工具链，统一由本 CI 出包；产物可侧载。
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'windows/src/**'
+      - '.github/workflows/android-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: |
+          sdkmanager "ndk;26.1.10909125"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> "$GITHUB_ENV"
+
+      - name: Setup Rust + Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: android/src-tauri
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Tauri Android init
+        working-directory: android
+        run: tauri android init
+
+      - name: Build APK（debug 签名，可直接侧载安装）
+        working-directory: android
+        run: tauri android build --apk --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: childvideo-android
+          path: android/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error

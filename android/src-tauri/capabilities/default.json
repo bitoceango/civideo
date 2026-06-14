@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "默认能力：核心（仅需加载本地 Web UI 并 fetch 远端 Worker）",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
