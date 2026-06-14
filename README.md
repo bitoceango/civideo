@@ -131,6 +131,17 @@ npx wrangler deploy
 ```
 </details>
 
+### 两个密钥（你自己定，部署时设置）
+
+后端有两个**完全由你自定义**的密钥（互相独立，issue #17 起分离）：
+
+| 密钥 | 是什么 | 在哪用 | 怎么设 |
+|---|---|---|---|
+| **设备激活密钥 `ACTIVATION_KEY`** | 一台设备首次"加入"你家库的口令 | App 激活页（家长把它给家人，在 Windows/Android/Mac/iOS 上激活设备时输入一次） | `npm run setup` 时回车=随机生成，或自己输任意值；改用 `wrangler secret put ACTIVATION_KEY`。建议长随机串 `openssl rand -hex 24` |
+| **家长门 `PARENT_PIN`** | 进 App 内「家长中心」的 PIN | 改每日时长/允许时段规则、**桌面端家长上传**时输入 | `npm run setup` 时你输入，可短数字（如 `1234`）；改用 `wrangler secret put PARENT_PIN` |
+
+> 二者分工：**激活密钥**管"哪台设备能连你的库"；**家长 PIN**管"谁能改规则/上传"。`setup` 结束会打印激活密钥，妥善保存。若不设 `ACTIVATION_KEY`，激活会回退用 `PARENT_PIN`（不推荐，二者最好分开）。
+
 ### 2. 上传 CLI
 
 ```bash
