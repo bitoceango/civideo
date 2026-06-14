@@ -1,8 +1,9 @@
 name: Release (多平台打包)
 
-# 打 v* tag（如 v0.1.0）触发：并行构建各平台产物并发布到 GitHub Release。
-# 各平台「能否下载即用」见下方 Release 说明：桌面端可下载（未签名需绕过系统拦截），
-# iOS 因签名限制不能直接安装，ipa 仅供 SideStore/AltStore 自签侧载。
+# 打 v* tag（如 v0.2.0）触发：并行构建各平台产物并发布到 GitHub Release。
+# 覆盖 Windows(Tauri+上传/下载) / Android(Tauri 消费端) / iOS(SwiftUI) / CLI。
+# macOS：Tauri 桌面版依赖静态 ffmpeg，CI 打包复杂，暂在本地 `cd windows && tauri build
+# --bundles dmg` 出包后手动附到 Release（含家长上传）。
 on:
   push:
     tags: ['v*']
@@ -18,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - name: 打包 CLI
         run: |
           cd cli
@@ -29,29 +30,6 @@ jobs:
         with:
           name: cli
           path: childvideo-cli.tgz
-
-  macos-app:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: 安装 xcodegen
-        run: brew install xcodegen
-      - name: 生成工程
-        run: cd app && xcodegen generate
-      - name: 构建 macOS App（未签名）
-        run: |
-          cd app
-          xcodebuild -project ChildVideo.xcodeproj -scheme ChildVideo_macOS \
-            -configuration Release -derivedDataPath build/dd \
-            CODE_SIGNING_ALLOWED=NO build
-      - name: 压缩 .app
-        run: |
-          cd app/build/dd/Build/Products/Release
-          ditto -c -k --keepParent ChildVideo.app "$GITHUB_WORKSPACE/childvideo-macos.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos
-          path: childvideo-macos.zip
 
   ios-ipa:
     runs-on: macos-latest
@@ -86,6 +64,17 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: windows/src-tauri
+      - name: 拉 sidecar（yt-dlp + ffmpeg，供家长上传/网址下载）
+        shell: bash
+        run: |
+          BIN="$GITHUB_WORKSPACE/windows/src-tauri/binaries"
+          mkdir -p "$BIN"
+          curl -fsSL -o "$BIN/yt-dlp-x86_64-pc-windows-msvc.exe" \
+            https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
+          curl -fsSL -o ffmpeg.zip \
+            https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip
+          unzip -q ffmpeg.zip
+          cp "$(find . -path '*win64*' -name ffmpeg.exe | head -1)" "$BIN/ffmpeg-x86_64-pc-windows-msvc.exe"
       - name: 构建 Tauri 安装包
         uses: tauri-apps/tauri-action@v0
         env:
@@ -98,8 +87,52 @@ jobs:
           path: windows/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
 
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: NDK r26 + 移除预装 r29
+        run: |
+          sdkmanager "ndk;26.1.10909125"
+          rm -rf "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/29.0.14206865" || true
+          NDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/26.1.10909125"
+          for k in NDK_HOME ANDROID_NDK_HOME ANDROID_NDK_ROOT ANDROID_NDK ANDROID_NDK_LATEST_HOME; do
+            echo "$k=$NDK" >> "$GITHUB_ENV"
+          done
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: android/src-tauri
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+      - name: Init + Build APK（arm64）
+        working-directory: android
+        run: |
+          cargo tauri android init
+          cargo tauri android build --apk --debug --target aarch64
+        env:
+          RUST_BACKTRACE: 1
+      - name: 收集 APK
+        run: cp "$(find android/src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -1)" "$GITHUB_WORKSPACE/childvideo-android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: childvideo-android.apk
+
   release:
-    needs: [cli, macos-app, ios-ipa, windows]
+    needs: [cli, ios-ipa, windows, android]
     runs-on: ubuntu-latest
     steps:
       - name: 下载所有产物
@@ -111,15 +144,15 @@ jobs:
         with:
           files: dist/**/*
           body: |
-            # ChildVideo ${{ github.ref_name }}
+            # 儿童视频 ${{ github.ref_name }}
 
-            家庭自用儿童视频流媒体——家长上传，孩子在封闭播放器里观看。各平台安装：
+            家庭自用儿童视频流媒体——家长上传，孩子在封闭播放器里**看视频 + 听书**。**先自部署后端**（见 README），首次启动填你自己的 Worker 地址 + 激活密钥。
 
             | 平台 | 产物 | 安装 |
             |---|---|---|
-            | **Windows** | `*-setup.exe` | 双击安装。未签名 → SmartScreen 提示时点「More info → Run anyway」 |
-            | **macOS** | `childvideo-macos.zip` | 解压后**右键 .app → 打开**（未签名/未公证，首次需绕过 Gatekeeper） |
-            | **iOS** | `childvideo-ios-unsigned.ipa` | ⚠️ **不能直接安装**。需用 **SideStore/AltStore** 以你自己的 Apple ID 重签后侧载（见 README） |
-            | **CLI** | `childvideo-cli.tgz` | `npm i -g ./childvideo-cli.tgz`，用于上传视频到你的 R2 |
+            | **Windows** | `儿童视频_*_x64-setup.exe` | 双击装。未签名 → SmartScreen「更多信息 → 仍要运行」。含家长上传/网址下载 |
+            | **Android** | `childvideo-android.apk` | 开「允许未知来源」装（arm64）。消费端：视频 + 听书 |
+            | **iOS** | `childvideo-ios-unsigned.ipa` | ⚠️ 不能直接装，需 SideStore/AltStore 自签侧载 |
+            | **CLI** | `childvideo-cli.tgz` | `npm i -g ./childvideo-cli.tgz`，上传视频到你的 R2 |
 
-            首次启动在 App 内填**你自己的 Worker 服务器地址 + 激活密钥**（每人自部署后端，见 README）。
+            > **macOS**（含家长上传）：本地 `cd windows && tauri build --bundles dmg` 出包后手动附。
