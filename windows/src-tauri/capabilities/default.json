@@ -10,8 +10,13 @@
     "core:window:allow-is-fullscreen",
     "dialog:default",
     "fs:default",
+    "fs:allow-read-dir",
     {
       "identifier": "fs:allow-read-file",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:allow-read-dir",
       "allow": [{ "path": "**" }]
     },
     {

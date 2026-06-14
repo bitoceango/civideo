@@ -221,12 +221,15 @@ function settingsHTML(){ const eye=parseInt(localStorage.getItem('cv.eyeCareMin'
   ${cvNative.available?`<div class="grp" style="border-color:var(--accent-hi)">
     <div class="set-row" style="display:block;border:0">
       <div class="k" style="margin-bottom:10px">📤 上传视频<small>从本机选一个视频加入库（开发者模式，家长密码校验）</small></div>
-      <input class="field" id="up-title" placeholder="标题（必填）" style="margin-top:0">
+      <input class="field" id="up-title" placeholder="标题（单个用；多选/文件夹自动用文件名）" style="margin-top:0">
       <div class="row-h" style="gap:10px;margin-top:8px">
         <input class="field" id="up-series" placeholder="系列（可空）" style="margin-top:0">
         <input class="field" id="up-category" placeholder="分类（可空）" style="margin-top:0">
       </div>
-      <button class="primary" id="up-pick" style="margin-top:10px">选择本地视频并上传</button>
+      <div class="row-h" style="gap:10px;margin-top:10px">
+        <button class="primary" id="up-pick" style="flex:1">选择视频（可多选）上传</button>
+        <button class="primary" id="up-folder" style="flex:1;background:var(--card-hi);color:var(--text)">📁 整文件夹上传</button>
+      </div>
       <div style="height:10px"></div>
       <input class="field" id="up-url" placeholder="或粘贴网址（YouTube / Bilibili …）" style="margin-top:0">
       <button class="primary" id="up-url-go" style="margin-top:8px;background:var(--card-hi);color:var(--text)">⬇ 网址下载并上传</button>
@@ -267,6 +270,7 @@ function bindSettings(el){
   q('[data-mlock]')&&(q('[data-mlock]').onclick=()=>{mineUnlocked=false;minePin='';rerenderScreen();bindScreen();});
   q('[data-logout]')&&(q('[data-logout]').onclick=()=>{API.logout();S.view='activation';render();});
   q('#up-pick')&&(q('#up-pick').onclick=uploadLocalVideo);
+  q('#up-folder')&&(q('#up-folder').onclick=uploadFolder);
   q('#up-url-go')&&(q('#up-url-go').onclick=uploadFromUrl);
   el.querySelectorAll('[data-lim]').forEach(b=>b.onclick=()=>{ED.limOn=b.dataset.lim==='on';rerenderScreen();bindScreen();});
   el.querySelectorAll('[data-hr]').forEach(b=>b.onclick=()=>{ED.hr=b.dataset.hr==='on';rerenderScreen();bindScreen();});
@@ -284,11 +288,26 @@ function toast(msg){ const t=document.createElement('div'); t.className='toast';
 // ===== 开发者模式：家长本地上传（仅 Tauri 桌面端；移动/纯网页自动隐藏） =====
 const cvNative = {
   get available(){ return !!(typeof window!=='undefined' && window.__TAURI__ && window.__TAURI__.core); },
-  async pickVideo(){
-    const filters=[{name:'视频',extensions:['mp4','mov','m4v','mkv','webm','avi']}];
+  VIDEO_EXTS:['mp4','mov','m4v','mkv','webm','avi','flv','ts','wmv','mpg','mpeg'],
+  async pickVideos(){ // 多选
+    const filters=[{name:'视频',extensions:this.VIDEO_EXTS}];
     const d=window.__TAURI__.dialog;
-    if(d&&d.open) return await d.open({multiple:false,directory:false,filters});
-    return await window.__TAURI__.core.invoke('plugin:dialog|open',{options:{multiple:false,directory:false,filters}});
+    const r=d&&d.open ? await d.open({multiple:true,directory:false,filters})
+      : await window.__TAURI__.core.invoke('plugin:dialog|open',{options:{multiple:true,directory:false,filters}});
+    return Array.isArray(r)?r:(r?[r]:[]);
+  },
+  async pickFolder(){
+    const d=window.__TAURI__.dialog;
+    return d&&d.open ? await d.open({directory:true,multiple:false})
+      : await window.__TAURI__.core.invoke('plugin:dialog|open',{options:{directory:true}});
+  },
+  async listVideos(folder){ // 文件夹内（含子目录）的视频文件路径
+    const fs=window.__TAURI__.fs, path=window.__TAURI__.path, out=[];
+    const walk=async(dir)=>{ let es; try{ es=await fs.readDir(dir); }catch(e){ return; }
+      for(const e of es){ const full=await path.join(dir,e.name);
+        if(e.isDirectory){ await walk(full); }
+        else if(this.VIDEO_EXTS.includes((e.name.split('.').pop()||'').toLowerCase())) out.push(full); } };
+    await walk(folder); return out;
   },
   async readBytes(path){
     const fs=window.__TAURI__.fs;
@@ -365,17 +384,42 @@ async function uploadFromPath(path, meta, set){
   if(!m.ok) throw new Error('写入库失败（'+m.status+'）');
   return {id:u.id, sizeBytes:bytes.length, durationSec};
 }
+function basename(p){ return (String(p).split(/[\\/]/).pop()||'video').replace(/\.[^.]+$/,''); }
+async function uploadBatch(paths, meta, set){
+  let ok=0, fail=0; const failNames=[];
+  for(let i=0;i<paths.length;i++){
+    const p=paths[i], title=(paths.length===1&&meta.title)?meta.title:basename(p);
+    set(`上传中 ${i+1}/${paths.length}：${title}`);
+    try{ await uploadFromPath(p,{title,series:meta.series,category:meta.category,source:'本地上传'},()=>{}); ok++; }
+    catch(e){ fail++; failNames.push(basename(p)); }
+  }
+  return {ok,fail,total:paths.length,failNames};
+}
 async function uploadLocalVideo(){
   const st=document.getElementById('up-status'); const set=m=>{ if(st)st.textContent=m; };
+  if(!cvNative.available){ set('仅桌面 App 支持上传'); return; }
   const title=(document.getElementById('up-title')?.value||'').trim();
-  if(!title){ set('请先填标题'); return; }
+  const series=(document.getElementById('up-series')?.value||'').trim();
+  const category=(document.getElementById('up-category')?.value||'').trim();
+  try{
+    set('选择文件（可多选）…'); const paths=await cvNative.pickVideos(); if(!paths.length){ set(''); return; }
+    const r=await uploadBatch(paths,{title,series,category},set);
+    set(`✅ 完成：成功 ${r.ok}/${r.total}`+(r.fail?`，失败 ${r.fail}（${r.failNames.slice(0,3).join('、')}）`:''));
+    const ti=document.getElementById('up-title'); if(ti)ti.value=''; await reload(); toast(`已加入 ${r.ok} 个视频`);
+  }catch(e){ set('出错：'+(e?.message||e)); }
+}
+async function uploadFolder(){
+  const st=document.getElementById('up-status'); const set=m=>{ if(st)st.textContent=m; };
   if(!cvNative.available){ set('仅桌面 App 支持上传'); return; }
   const series=(document.getElementById('up-series')?.value||'').trim();
   const category=(document.getElementById('up-category')?.value||'').trim();
   try{
-    set('选择文件…'); const path=await cvNative.pickVideo(); if(!path){ set(''); return; }
-    await uploadFromPath(path,{title,series,category},set);
-    set('✅ 上传成功！'); const ti=document.getElementById('up-title'); if(ti)ti.value=''; await reload(); toast('已加入视频库');
+    set('选择文件夹…'); const folder=await cvNative.pickFolder(); if(!folder){ set(''); return; }
+    set('扫描视频…'); const paths=await cvNative.listVideos(folder);
+    if(!paths.length){ set('该文件夹（含子目录）没有视频文件'); return; }
+    const r=await uploadBatch(paths,{series,category},set);
+    set(`✅ 完成：成功 ${r.ok}/${r.total}`+(r.fail?`，失败 ${r.fail}`:''));
+    await reload(); toast(`已加入 ${r.ok} 个视频`);
   }catch(e){ set('出错：'+(e?.message||e)); }
 }
 async function uploadFromUrl(){
