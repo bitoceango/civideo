@@ -218,6 +218,17 @@ function settingsHTML(){ const eye=parseInt(localStorage.getItem('cv.eyeCareMin'
   <div class="grp"><div class="set-row"><div class="k">学习报告</div>
     <div style="text-align:right"><div style="font-weight:600">今日 ${Math.floor(S.todayWatchedSec/60)} 分钟</div>
     <div style="font-size:12.5px;color:var(--faint)">本周 ${Math.floor(S.weekWatchedSec/60)} 分钟</div></div></div></div>
+  ${cvNative.available?`<div class="grp" style="border-color:var(--accent-hi)">
+    <div class="set-row" style="display:block;border:0">
+      <div class="k" style="margin-bottom:10px">📤 上传视频<small>从本机选一个视频加入库（开发者模式，家长密码校验）</small></div>
+      <input class="field" id="up-title" placeholder="标题（必填）" style="margin-top:0">
+      <div class="row-h" style="gap:10px;margin-top:8px">
+        <input class="field" id="up-series" placeholder="系列（可空）" style="margin-top:0">
+        <input class="field" id="up-category" placeholder="分类（可空）" style="margin-top:0">
+      </div>
+      <button class="primary" id="up-pick" style="margin-top:10px">选择本地视频并上传</button>
+      <div id="up-status" style="font-size:13px;color:var(--faint);margin-top:8px"></div>
+    </div></div>`:''}
   <div id="serr" style="color:#E06B6B;font-size:13px;margin:8px 0"></div>
   <button class="primary" data-save>保存设置</button>
   <button style="width:100%;padding:12px;margin-top:8px;color:#E06B6B" data-logout>注销此设备</button></div>`; }
@@ -252,6 +263,7 @@ function bindSettings(el){
   q('[data-save]')&&(q('[data-save]').onclick=save);
   q('[data-mlock]')&&(q('[data-mlock]').onclick=()=>{mineUnlocked=false;minePin='';rerenderScreen();bindScreen();});
   q('[data-logout]')&&(q('[data-logout]').onclick=()=>{API.logout();S.view='activation';render();});
+  q('#up-pick')&&(q('#up-pick').onclick=uploadLocalVideo);
   el.querySelectorAll('[data-lim]').forEach(b=>b.onclick=()=>{ED.limOn=b.dataset.lim==='on';rerenderScreen();bindScreen();});
   el.querySelectorAll('[data-hr]').forEach(b=>b.onclick=()=>{ED.hr=b.dataset.hr==='on';rerenderScreen();bindScreen();});
   el.querySelectorAll('[data-eye]').forEach(b=>b.onclick=()=>{localStorage.setItem('cv.eyeCareMin',b.dataset.eye);rerenderScreen();bindScreen();});
@@ -264,6 +276,75 @@ function bindSettings(el){
     el.querySelector('#heval')&&(el.querySelector('#heval').textContent=ED.he+':00'); });
 }
 function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),1600); }
+
+// ===== 开发者模式：家长本地上传（仅 Tauri 桌面端；移动/纯网页自动隐藏） =====
+const cvNative = {
+  get available(){ return !!(typeof window!=='undefined' && window.__TAURI__ && window.__TAURI__.core); },
+  async pickVideo(){
+    const filters=[{name:'视频',extensions:['mp4','mov','m4v','mkv','webm','avi']}];
+    const d=window.__TAURI__.dialog;
+    if(d&&d.open) return await d.open({multiple:false,directory:false,filters});
+    return await window.__TAURI__.core.invoke('plugin:dialog|open',{options:{multiple:false,directory:false,filters}});
+  },
+  async readBytes(path){
+    const fs=window.__TAURI__.fs;
+    if(fs&&fs.readFile) return await fs.readFile(path);
+    return new Uint8Array(await window.__TAURI__.core.invoke('plugin:fs|read_file',{path}));
+  },
+  async put(url, bytes, contentType){
+    const res=await window.__TAURI__.http.fetch(url,{method:'PUT',headers:{'Content-Type':contentType},body:bytes});
+    return res.status;
+  },
+};
+
+// webview 内用 <video>+canvas 取一帧海报 + 时长/分辨率（免 ffmpeg）。
+function probeAndPoster(bytes){
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(new Blob([bytes],{type:'video/mp4'}));
+    const v=document.createElement('video'); v.muted=true; v.preload='metadata'; v.src=url;
+    let done=false; const fail=e=>{ if(done)return; done=true; URL.revokeObjectURL(url); reject(e); };
+    v.addEventListener('loadedmetadata',()=>{ try{ v.currentTime=Math.min(1,(v.duration||2)/2); }catch(e){ fail(e); } });
+    v.addEventListener('seeked',()=>{ if(done)return;
+      try{
+        const w=v.videoWidth,h=v.videoHeight, cw=Math.min(640,w||640), ch=Math.round(cw*((h&&w)?h/w:0.5625));
+        const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+        cv.getContext('2d').drawImage(v,0,0,cw,ch);
+        cv.toBlob(async(blob)=>{ const pb=blob?new Uint8Array(await blob.arrayBuffer()):null; done=true; URL.revokeObjectURL(url);
+          resolve({posterBytes:pb,durationSec:Math.round(v.duration||0),width:w||null,height:h||null}); },'image/jpeg',0.82);
+      }catch(e){ fail(e); }
+    });
+    v.addEventListener('error',()=>fail(new Error('视频解码失败（建议 mp4/H.264）')));
+    setTimeout(()=>fail(new Error('探测超时')),20000);
+  });
+}
+
+async function uploadLocalVideo(){
+  const st=document.getElementById('up-status'); const set=m=>{ if(st)st.textContent=m; };
+  const title=(document.getElementById('up-title')?.value||'').trim();
+  if(!title){ set('请先填标题'); return; }
+  if(!cvNative.available){ set('仅桌面 App 支持上传'); return; }
+  const series=(document.getElementById('up-series')?.value||'').trim();
+  const category=(document.getElementById('up-category')?.value||'').trim();
+  try{
+    set('选择文件…'); const path=await cvNative.pickVideo(); if(!path){ set(''); return; }
+    set('读取文件…'); const bytes=await cvNative.readBytes(path);
+    set('生成封面…'); let poster=null,durationSec=0,width=null,height=null;
+    try{ const p=await probeAndPoster(bytes); poster=p.posterBytes; durationSec=p.durationSec; width=p.width; height=p.height; }catch(e){ /* 海报失败不阻断 */ }
+    set('申请上传…');
+    const r=await fetch(`${API.server}/api/admin/upload-url`,{method:'POST',headers:{'content-type':'application/json',...API.authHeaders()},body:JSON.stringify({pin:minePin})});
+    if(r.status===403){ set('家长密码不正确'); return; }
+    if(!r.ok){ set('申请上传失败（'+r.status+'）'); return; }
+    const u=await r.json();
+    set(`上传视频（${(bytes.length/1048576).toFixed(0)}MB）…`);
+    const vs=await cvNative.put(u.videoPut,bytes,'video/mp4');
+    if(vs<200||vs>=300){ set('视频上传失败（'+vs+'）'); return; }
+    if(poster){ set('上传封面…'); try{ await cvNative.put(u.posterPut,poster,'image/jpeg'); }catch(e){} }
+    set('写入库…');
+    const m=await fetch(`${API.server}/api/admin/manifest-add`,{method:'POST',headers:{'content-type':'application/json',...API.authHeaders()},body:JSON.stringify({pin:minePin,id:u.id,title,series:series||null,category:category||null,durationSec,width,height,sizeBytes:bytes.length,source:'本地上传'})});
+    if(!m.ok){ set('写入库失败（'+m.status+'）'); return; }
+    set('✅ 上传成功！'); const ti=document.getElementById('up-title'); if(ti)ti.value=''; await reload(); toast('已加入视频库');
+  }catch(e){ set('出错：'+(e?.message||e)); }
+}
 
 // ===== 播放器 =====
 let P=null;
