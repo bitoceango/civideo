@@ -1,6 +1,6 @@
 # child-podcast — 自建儿童视频流媒体
 
-一套**家庭自用**的私有儿童视频流媒体：家长把视频上传到 Cloudflare R2，孩子在原生 Apple App（iPhone / iPad / Mac）里观看。
+一套**家庭自用**的私有儿童视频流媒体：家长把视频上传到 Cloudflare R2，孩子在原生 App（**iPhone / iPad / Mac / Windows / Android**）里**看视频 + 听书**。家长可在桌面端（Windows/macOS）开发者模式里**自助上传本地视频或从网址（YouTube/Bilibili）下载入库**。
 
 **为什么自己建**：商业视频平台充斥推荐流、广告和不适合孩子的内容，孩子很容易被无关视频吸引、无法专注。这个项目是一个**封闭内容花园**——孩子端没有外部搜索、没有外部入口、没有推荐算法、没有弹幕/社交，**只能看到家长放进去的内容**。
 
@@ -14,10 +14,19 @@
                               ▼
                     Cloudflare Worker (鉴权流媒体网关 + 边缘缓存 + D1 进度/规则)
                               │  绑定自有域名（绕开被墙的 *.workers.dev）
-                              ▼
-                  原生 SwiftUI App (iPhone / iPad / Mac, AVPlayer)
-                  首页 / 分类 / 我的 三大模块 + 商业级播放器
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+   SwiftUI App           Tauri App        Tauri App
+   (iPhone/iPad/Mac)     (Windows)        (Android)
+   AVPlayer              WebView2         WebView
+        └────── 共用：首页/分类/听书/我的 + 商业级播放器 ──────┘
+
+家长桌面端（Windows/macOS）开发者模式：捆绑 yt-dlp+ffmpeg，本地处理 →
+预签名直传 R2 → 写 manifest（密钥只在 Worker，App 内不存）。听书：cpv 调
+豆包 seed-tts-2.0 把电子书转成音频，同一套 R2/Worker/App 链路。
 ```
+
+> **两套前端代码**：Apple 端 SwiftUI（`app/`）；Windows + Android 共用一套 Web UI（`windows/src`，Tauri v2 分别出安装包/APK）。功能"三端同时实现"为硬性规则（见 `CLAUDE.md`）。
 
 - **存储**：R2 按字节计费 + 出口免费（明确否决按时长计费的 Cloudflare Stream）。
 - **不转码**：互联网视频多为 H.264/AAC，`cpv` 用 ffprobe 探测，只在必要时重封装/转码。
@@ -27,11 +36,25 @@
 
 完整设计见 [`docs/architecture.md`](docs/architecture.md)。
 
+## 下载 App
+
+预编译安装包见 **[Releases](../../releases)**（你需先自部署后端，首次启动填自己的 Worker 地址 + 激活密钥）：
+
+| 平台 | 产物 | 安装 |
+|---|---|---|
+| **Windows** | `儿童视频_*_x64-setup.exe` | 双击装。未签名 → SmartScreen 点「更多信息 → 仍要运行」 |
+| **macOS** | `儿童视频_*_aarch64.dmg` | 拖入 Applications。未签名/未公证 → 右键「打开」或 `xattr -dr com.apple.quarantine` |
+| **Android** | `app-universal-debug.apk` | 手机开「允许安装未知来源」后装（debug 通用包，体积偏大） |
+| **iOS** | `*-unsigned.ipa` | ⚠️ 不能直接装，需 SideStore/AltStore 自签侧载 |
+
+> Windows/macOS 含**家长上传**（开发者模式）；Android 为纯消费端（看视频+听书）。
+
 ## 功能
 
 **孩子端 App（三大模块）**
 - 🏠 **首页**：学科金刚区 + 继续观看 + 我喜欢的 + 系列聚合（横排预览，多集进竖向网格）。自动刷新，新上传的视频自动出现。
 - 📚 **分类**：按「学科/能力」（科学/英语/数理/国学/艺术…）二级浏览，无热度榜。
+- 🎧 **听书**：电子书经豆包 seed-tts-2.0 转成音频，按章收听；独立书架（继续收听/分类/网格）+ 音频播放器（封面+章节+进度，无屏幕，护眼）。
 - 👤 **我的**：家长 PIN 门 → 每日时长 / 允许时段 / 护眼提醒 / 学习报告（今日·本周）/ 设备管理。
 
 **播放器（对齐商业流媒体）**
@@ -40,7 +63,12 @@
 - AirPlay 投屏、Now Playing 锁屏/控制中心/耳机线控
 - 防误触锁定（长按解锁）、护眼休息提醒
 
-> 有意**不做**（违背封闭专注理念）：算法推荐流、弹幕、评论/社交、热度榜、外链、电商/会员、UGC 上传。
+**家长端（桌面 Windows/macOS，开发者模式·家长 PIN 门后）**
+- 📤 **本地上传**：选单个 / **多选** / **整个文件夹**视频，自动截封面+读时长，预签名直传 R2 入库。
+- ⬇ **网址下载**：粘贴 **YouTube / Bilibili 等**链接，捆绑的 yt-dlp 在本机下载（自动用浏览器登录态绕 B 站风控），合并成 H.264/AAC mp4 入库。
+- 安全：R2 密钥只在 Worker，App 走预签名、内不存密钥；入口藏在家长 PIN 门后，孩子端无感。
+
+> 有意**不做**（违背封闭专注理念）：算法推荐流、弹幕、评论/社交、热度榜、外链、电商/会员、孩子端 UGC 上传。
 
 ## 仓库结构
 
@@ -49,6 +77,8 @@
 | `cli/` | 上传 CLI `cpv`（Node + S3 SDK）：探测/转码/上传 R2/维护 manifest。专为 AI 调用设计。含 `import-youtube.sh` 一键导入 |
 | `worker/` | Cloudflare Worker：激活、媒体网关（Range + 边缘缓存）、进度、家长规则 + D1 schema |
 | `app/` | SwiftUI 多平台 App（iOS 17+ / macOS 14+，xcodegen 工程），含图标生成脚本 |
+| `windows/` | Tauri v2 桌面 App（Windows + macOS 共用）：`src/` 是 Web UI（首页/分类/听书/我的+播放器+家长上传），`src-tauri/` 是 Rust 壳；CI 出 NSIS 安装包 / macOS .dmg |
+| `android/` | Tauri v2 Android 工程：复用 `windows/src` 的 Web UI，CI 出 APK（消费端：视频+听书） |
 | `tests/` | `e2e-backend.sh` 端到端后端验收测试（curl 断言，带退出码） |
 | `docs/` | 架构设计 + `requirements/`（需求文档：PRD/Epic/Story、验收与测试计划） |
 | `designs/` | 孩子端 UI 设计原型（可在浏览器打开的 HTML） |
