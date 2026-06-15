@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root{
+    --accent-h:196;
+    --accent:oklch(0.74 0.13 var(--accent-h));
+    --accent-2:oklch(0.82 0.14 160);
+    --bg:oklch(0.16 0.012 265);
+    --bg-2:oklch(0.20 0.016 265);
+    --card:oklch(0.235 0.018 265);
+    --card-2:oklch(0.27 0.02 265);
+    --line:oklch(0.34 0.016 265);
+    --text:oklch(0.97 0.005 265);
+    --muted:oklch(0.74 0.012 265);
+    --faint:oklch(0.60 0.012 265);
+    --good:oklch(0.80 0.15 150);
+    --pink:oklch(0.74 0.15 12);
+    --gold:oklch(0.84 0.13 80);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{font-family:-apple-system,"PingFang SC","Noto Sans SC",system-ui,sans-serif}
+  .page{
+    width:1600px;height:1000px;position:relative;overflow:hidden;
+    color:var(--text);
+    background:
+      radial-gradient(1100px 700px at 14% -8%, oklch(0.30 0.07 196 / .55), transparent 60%),
+      radial-gradient(900px 700px at 100% 110%, oklch(0.30 0.06 160 / .42), transparent 55%),
+      linear-gradient(160deg, var(--bg-2), var(--bg));
+    padding:46px 54px;
+    display:flex;flex-direction:column;gap:22px;
+  }
+  /* ---- header ---- */
+  .head{display:flex;align-items:center;gap:22px}
+  .logo{
+    width:88px;height:88px;border-radius:24px;flex:none;position:relative;
+    background:linear-gradient(150deg, var(--accent), oklch(0.66 0.15 200) 55%, oklch(0.74 0.14 160));
+    box-shadow:0 18px 44px -14px oklch(0.55 0.16 196 / .8), inset 0 1px 0 oklch(1 0 0 /.35);
+    display:grid;place-items:center;
+  }
+  .logo::after{content:"";width:0;height:0;margin-left:8px;
+    border-left:30px solid oklch(0.14 0.02 265);
+    border-top:19px solid transparent;border-bottom:19px solid transparent;
+    filter:drop-shadow(0 1px 0 oklch(1 0 0 /.25))}
+  .ttl h1{font-size:46px;font-weight:800;letter-spacing:-.5px;line-height:1.05}
+  .ttl h1 .en{color:var(--accent);font-weight:700}
+  .ttl .sub{margin-top:9px;font-size:20px;color:var(--muted);font-weight:500}
+  .ttl .sub b{color:var(--accent-2);font-weight:700}
+  .pill{margin-left:auto;align-self:flex-start;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+  .badge{font-size:15px;font-weight:700;padding:8px 16px;border-radius:999px;
+    border:1px solid var(--line);background:oklch(0.22 0.02 265 /.7);color:var(--text);white-space:nowrap}
+  .badge.glow{border-color:oklch(0.55 0.12 196);color:var(--accent);background:oklch(0.26 0.05 196 /.35)}
+
+  .tagline{font-size:21px;color:var(--text);font-weight:600;line-height:1.5;
+    padding:16px 22px;border-radius:18px;border:1px solid var(--line);
+    background:linear-gradient(120deg, oklch(0.24 0.025 265 /.85), oklch(0.21 0.02 265 /.6))}
+  .tagline .hl{color:var(--accent)}
+  .tagline .x{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--pink)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;flex:1}
+  .col{display:flex;flex-direction:column;gap:18px;min-height:0}
+  .card{
+    border:1px solid var(--line);border-radius:20px;padding:20px 22px;
+    background:linear-gradient(150deg, var(--card-2), var(--card));
+    box-shadow:0 16px 40px -24px oklch(0 0 0 /.8);
+    display:flex;flex-direction:column;gap:13px;flex:1;min-height:0;
+  }
+  .card h3{font-size:19px;font-weight:800;display:flex;align-items:center;gap:9px}
+  .card h3 .ic{font-size:21px}
+  .card h3 .tag{margin-left:auto;font-size:12.5px;font-weight:700;color:var(--bg);
+    background:var(--accent);padding:3px 10px;border-radius:999px}
+  .feat{display:flex;gap:11px;align-items:flex-start}
+  .feat .e{font-size:19px;flex:none;width:26px;text-align:center}
+  .feat .t{font-size:16px;line-height:1.45;color:var(--muted)}
+  .feat .t b{color:var(--text);font-weight:700}
+
+  /* architecture flow */
+  .flow{display:flex;flex-direction:column;gap:10px}
+  .node{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:14px;
+    background:oklch(0.22 0.018 265 /.7);border:1px solid var(--line)}
+  .node .e{font-size:20px;width:26px;text-align:center;flex:none}
+  .node .lab{font-size:15.5px}
+  .node .lab b{font-weight:700;color:var(--text)}
+  .node .lab span{color:var(--faint);font-size:13.5px}
+  .arrow{text-align:center;color:var(--accent);font-size:15px;line-height:.6;margin:-4px 0}
+  .three{display:flex;gap:8px}
+  .three .node{flex:1;flex-direction:column;align-items:center;gap:4px;text-align:center;padding:10px 6px}
+  .three .node .lab{font-size:13px}
+  .three .node .lab b{display:block;font-size:14.5px}
+
+  /* stack chips */
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{font-size:13.5px;font-weight:600;color:var(--muted);
+    border:1px solid var(--line);border-radius:9px;padding:6px 11px;background:oklch(0.22 0.016 265 /.6)}
+  .chip b{color:var(--accent)}
+
+  .foot{display:flex;align-items:center;gap:16px;font-size:15.5px;color:var(--muted)}
+  .foot .k{display:flex;align-items:center;gap:8px;font-weight:600}
+  .foot .k b{color:var(--text)}
+  .foot .ai{margin-left:auto;font-weight:700;color:var(--accent);
+    border:1px solid oklch(0.55 0.12 196);background:oklch(0.26 0.05 196 /.3);
+    padding:9px 16px;border-radius:999px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="head">
+    <div class="logo"></div>
+    <div class="ttl">
+      <h1>儿童视频 <span class="en">child-video</span></h1>
+      <div class="sub">自建私有儿童视频流媒体 <b>+ 听书</b> · 一个封闭、专注、零打扰的内容花园</div>
+    </div>
+    <div class="pill">
+      <div class="badge glow">个人全栈 AI 项目</div>
+      <div class="badge">iOS · iPad · Mac · Windows · Android</div>
+    </div>
+  </div>
+
+  <div class="tagline">
+    家长把视频上传到自己的云，孩子在<span class="hl">原生 App</span> 里安静地看视频、听书 —
+    <span class="x">没有推荐流</span> <span class="x">没有广告</span> <span class="x">没有弹幕社交</span> <span class="x">没有外部入口</span>，<span class="hl">只看见家长放进去的内容</span>。
+  </div>
+
+  <div class="grid">
+
+    <!-- col 1: 孩子端功能 -->
+    <div class="col">
+      <div class="card">
+        <h3><span class="ic">🧒</span>孩子端 · 四大模块<span class="tag">五端原生</span></h3>
+        <div class="feat"><div class="e">🏠</div><div class="t"><b>首页</b> 学科金刚区 + 继续观看 + 我喜欢 + 系列聚合，新上传自动出现</div></div>
+        <div class="feat"><div class="e">📚</div><div class="t"><b>分类</b> 按学科/能力浏览（科学·英语·数理·国学·艺术），无热度榜</div></div>
+        <div class="feat"><div class="e">🎧</div><div class="t"><b>听书</b> 电子书经豆包 TTS 转音频，按章收听，无屏护眼</div></div>
+        <div class="feat"><div class="e">👤</div><div class="t"><b>我的</b> 家长 PIN 门：每日时长 · 允许时段 · 护眼提醒 · 学习报告</div></div>
+      </div>
+      <div class="card">
+        <h3><span class="ic">▶️</span>对齐商业级的播放器</h3>
+        <div class="feat"><div class="e">⏯</div><div class="t">进度拖动 + 缓冲 · ±10 秒 · 倍速 · 选集自动连播 · 断点续播</div></div>
+        <div class="feat"><div class="e">📺</div><div class="t">AirPlay 投屏 · 锁屏控制 · CC 字幕 · 防误触锁定</div></div>
+      </div>
+    </div>
+
+    <!-- col 2: 家长端 + 架构 -->
+    <div class="col">
+      <div class="card">
+        <h3><span class="ic">📤</span>家长端 · 自助入库<span class="tag">桌面</span></h3>
+        <div class="feat"><div class="e">🗂</div><div class="t"><b>本地上传</b> 单个 / 多选 / 整个文件夹，自动截封面读时长</div></div>
+        <div class="feat"><div class="e">⬇️</div><div class="t"><b>网址下载</b> 粘贴 YouTube / Bilibili 链接，本机 yt-dlp 下载入库</div></div>
+        <div class="feat"><div class="e">🔐</div><div class="t"><b>预签名直传</b> R2 密钥只在云端，App 内不存任何长期密钥</div></div>
+      </div>
+      <div class="card">
+        <h3><span class="ic">🏗</span>架构（Serverless · 近零成本）</h3>
+        <div class="flow">
+          <div class="node"><div class="e">📥</div><div class="lab"><b>Cloudflare R2</b> 私有桶 <span>· manifest = 播放列表单一事实源</span></div></div>
+          <div class="arrow">▼</div>
+          <div class="node"><div class="e">🛡</div><div class="lab"><b>Worker 网关</b> <span>鉴权 · 边缘缓存 · D1 进度/规则</span></div></div>
+          <div class="arrow">▼</div>
+          <div class="three">
+            <div class="node"><div class="e">🍎</div><div class="lab"><b>SwiftUI</b>iOS/Mac</div></div>
+            <div class="node"><div class="e">🪟</div><div class="lab"><b>Tauri</b>Windows</div></div>
+            <div class="node"><div class="e">🤖</div><div class="lab"><b>Tauri</b>Android</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- col 3: 差异化 + 技术栈 -->
+    <div class="col">
+      <div class="card">
+        <h3><span class="ic">✨</span>为什么不一样</h3>
+        <div class="feat"><div class="e">🌳</div><div class="t"><b>封闭内容花园</b> 刻意不做推荐 / 广告 / 弹幕 / 外链 / 电商，孩子只专注内容</div></div>
+        <div class="feat"><div class="e">💸</div><div class="t"><b>月成本 $0 起</b> R2 免费额度内，出口流量永久免费，500GB≈$7/月</div></div>
+        <div class="feat"><div class="e">🆓</div><div class="t"><b>无任何年费</b> iOS 用 SideStore 免费侧载，不交 Apple $99/年</div></div>
+        <div class="feat"><div class="e">🔒</div><div class="t"><b>数据自己掌控</b> 桶保持私有，媒体经 Worker 鉴权才返回字节</div></div>
+      </div>
+      <div class="card">
+        <h3><span class="ic">🛠</span>技术栈</h3>
+        <div class="chips">
+          <div class="chip"><b>Swift</b>UI</div>
+          <div class="chip">AVPlayer</div>
+          <div class="chip"><b>Rust</b> · Tauri v2</div>
+          <div class="chip">Cloudflare <b>Workers</b></div>
+          <div class="chip"><b>R2</b> · D1</div>
+          <div class="chip">Node CLI</div>
+          <div class="chip">aws4fetch 预签名</div>
+          <div class="chip">yt-dlp · ffmpeg</div>
+          <div class="chip">豆包 <b>seed-tts-2.0</b></div>
+        </div>
+        <div class="feat" style="margin-top:2px"><div class="e">📐</div><div class="t">工程规范：需求文档(Epic/Story) → GitHub issue → 实现 → 三端对齐 → CI/CD 出包 → Release</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="foot">
+    <div class="k"><span class="dot"></span><b>5</b> 端原生客户端</div>
+    <div class="k"><span class="dot"></span><b>1</b> 套 Serverless 后端</div>
+    <div class="k"><span class="dot"></span>看视频 <b>+</b> 听书 一体</div>
+    <div class="ai">🤖 全程 Claude Code 协作开发 · 从 0 到 1</div>
+  </div>
+
+</div>
+</body>
+</html>

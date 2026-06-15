@@ -1,4 +1,8 @@
-# child-podcast — 自建儿童视频流媒体
+# child-video — 自建儿童视频流媒体 + 听书
+
+<p align="center">
+  <img src="docs/assets/intro.png" alt="child-video — 一个封闭、专注、零打扰的家庭自建儿童视频/听书流媒体（五端原生 App + Serverless 后端）" width="920">
+</p>
 
 一套**家庭自用**的私有儿童视频流媒体：家长把视频上传到 Cloudflare R2，孩子在原生 App（**iPhone / iPad / Mac / Windows / Android**）里**看视频 + 听书**。家长可在桌面端（Windows/macOS）开发者模式里**自助上传本地视频或从网址（YouTube/Bilibili）下载入库**。
 
