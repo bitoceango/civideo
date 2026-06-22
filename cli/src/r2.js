@@ -74,6 +74,40 @@ export async function putManifest(client, bucket, manifest) {
   );
 }
 
+// 分页列举某前缀（或全桶）下所有对象，累加返回 [{Key, Size, LastModified}]。
+// 家庭量级（千级对象）直接全量拉，无需 R2 用量分析 API。
+export async function listAllObjects(client, bucket, prefix) {
+  const objects = [];
+  let token;
+  do {
+    const listed = await client.send(
+      new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }),
+    );
+    for (const o of listed.Contents || []) {
+      objects.push({ key: o.Key, size: o.Size || 0, lastModified: o.LastModified || null });
+    }
+    token = listed.IsTruncated ? listed.NextContinuationToken : undefined;
+  } while (token);
+  return objects;
+}
+
+// 统计总用量并按前缀分组（videos/ / audiobooks/ / other），结合阈值给出 ok/warn/over 状态。
+export async function storageStats(client, bucket, { capGb, lowGb }) {
+  const objects = await listAllObjects(client, bucket);
+  const groups = { videos: { bytes: 0, objects: 0 }, audiobooks: { bytes: 0, objects: 0 }, other: { bytes: 0, objects: 0 } };
+  let totalBytes = 0;
+  for (const o of objects) {
+    totalBytes += o.size;
+    const g = o.key.startsWith('videos/') ? 'videos' : o.key.startsWith('audiobooks/') ? 'audiobooks' : 'other';
+    groups[g].bytes += o.size;
+    groups[g].objects += 1;
+  }
+  const GB = 1024 ** 3;
+  const totalGb = totalBytes / GB;
+  const status = totalGb > capGb ? 'over' : totalGb >= lowGb ? 'warn' : 'ok';
+  return { totalBytes, totalGb, objectCount: objects.length, groups, capGb, lowGb, status };
+}
+
 export async function deletePrefix(client, bucket, prefix) {
   let deleted = 0;
   let token;
