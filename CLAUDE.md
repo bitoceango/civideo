@@ -23,6 +23,9 @@ node cli/src/index.js upload <视频文件> --title "标题" [--series "系列�
 node cli/src/index.js list --json
 node cli/src/index.js remove <id> --json
 node cli/src/index.js doctor --json   # 检查 ffmpeg/配置/R2 连通性
+node cli/src/index.js storage --json  # R2 用量统计 + 阈值（ok/warn/over）
+node cli/src/index.js keep <id>       # 保护视频不被 gc 删（收藏保护）；unkeep 取消
+node cli/src/index.js gc --dry-run --json  # 自动回收：删看完旧视频到低水位（先 dry-run）。需 CV_WORKER_URL+PARENT_PIN，不可达则安全失败不删
 ```
 
 约定：

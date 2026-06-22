@@ -63,6 +63,37 @@ cpv audiobook 西游记.epub --title "西游记" --category 国学 --json
 cpv audiobook book.txt --title "睡前故事" --speaker zh_female_vv_uranus_bigtts --seg-chars 300 --id ab_bedtime --json
 ```
 
+### 存储治理 / 自动回收（GC）—— 需求文档 008
+
+R2 按字节计费，长期堆积旧视频会逼近上限。下面三条命令让用量可观测、可自动回收，且**绝不误删收藏/未看完的内容**（详见 `docs/requirements/008-r2-storage-gc.md`）。
+
+```bash
+# 用量统计 + 阈值告警（按 videos/audiobooks/其它 分组；状态 ok/warn/over）
+cpv storage --json
+cpv storage --cap-gb 500 --low-gb 450        # 覆盖默认阈值
+
+# 保护某视频：gc 永不删它（收藏保护）。取消用 unkeep
+cpv keep  v1a2b3c4d5
+cpv unkeep v1a2b3c4d5
+
+# 自动回收：超低水位才删「看完且过冷却期、未保护」的旧视频，按上传时间 old→new 删到低水位
+cpv gc --dry-run --json                       # 先预览候选与预计释放（强烈建议先 dry-run）
+cpv gc --json                                 # 真删（默认直接执行）
+cpv gc --low-gb 400 --cooldown-days 14 --json # 覆盖低水位与冷却天数
+```
+
+> **安全失败**：`gc` 必须能连到 Worker 的 `/api/admin/watch-stats`（受家长 PIN 保护）查「看完状态」。Worker 地址 / PIN 不可达或缺失时，**宁可不删**——直接退出非 0，不动任何对象。适合挂 cron/CI 定时跑。
+
+**存储治理相关环境变量**（均有默认、可选；也可用同名 `--flag` 覆盖）：
+
+```bash
+export R2_CAP_GB=500           # 存储上限 GB（over 阈值）
+export R2_LOW_GB=450           # 低水位 GB（gc 删到 ≤ 此值；warn 阈值）
+export GC_COOLDOWN_DAYS=7      # 视频「看完」后至少冷却几天才允许删
+export CV_WORKER_URL=https://video.example.com   # gc 查看完状态用（也可 --worker）
+export PARENT_PIN=1234         # 家长 PIN，调 watch-stats 鉴权用（也可 --pin）
+```
+
 ## 退出码与 JSON 输出（AI 集成约定）
 
 | 退出码 | 含义 |

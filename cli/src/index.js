@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { loadConfig } from './config.js';
+import { loadConfig, loadGcConfig } from './config.js';
 import { buildPlan, ffprobe, extractMeta } from './probe.js';
 import { runFfmpeg, makePoster } from './media.js';
 import { parseEbook, cleanAndSegment } from './ebook.js';
@@ -18,6 +18,8 @@ import {
   getManifest,
   putManifest,
   deletePrefix,
+  listAllObjects,
+  storageStats,
 } from './r2.js';
 
 const execFileP = promisify(execFile);
@@ -52,6 +54,10 @@ function fmtDuration(sec) {
   const m = Math.floor(sec / 60);
   const s = String(sec % 60).padStart(2, '0');
   return `${m}:${s}`;
+}
+
+function fmtGb(bytes) {
+  return `${(bytes / 1024 ** 3).toFixed(2)}GB`;
 }
 
 const program = new Command();
@@ -363,6 +369,204 @@ program
         `已删除 ${isVideo ? '视频' : '听书'} ${id}（${deletedObjects} 个对象），剩 ${manifest.videos.length} 视频 / ${manifest.audiobooks.length} 听书`);
     } catch (e) {
       fail(EXIT.FAIL, e.message, json);
+    }
+  });
+
+program
+  .command('storage')
+  .description('统计 R2 用量并对阈值（上限/低水位）告警（#48）')
+  .option('--cap-gb <n>', '存储上限 GB（默认 R2_CAP_GB 或 500）')
+  .option('--low-gb <n>', '低水位 GB（默认 R2_LOW_GB 或 450）')
+  .option('--json', 'JSON 输出')
+  .action(async (opts) => {
+    const json = !!opts.json;
+    const cfg = requireConfig(json);
+    const gc = loadGcConfig({ capGb: opts.capGb, lowGb: opts.lowGb });
+    try {
+      const s = await storageStats(makeClient(cfg), cfg.bucket, gc);
+      const pct = ((s.totalGb / gc.capGb) * 100).toFixed(1);
+      const mark = { ok: '✅ ok', warn: '⚠️ warn（已超低水位）', over: '🛑 over（已超上限）' }[s.status];
+      emit(
+        json,
+        { ok: true, ...s },
+        `R2 用量：${fmtGb(s.totalBytes)} / 上限 ${gc.capGb}GB（${pct}%）　低水位 ${gc.lowGb}GB　状态：${mark}\n` +
+          `  视频     ${fmtGb(s.groups.videos.bytes)}（${s.groups.videos.objects} 对象）\n` +
+          `  听书     ${fmtGb(s.groups.audiobooks.bytes)}（${s.groups.audiobooks.objects} 对象）\n` +
+          `  其它     ${fmtGb(s.groups.other.bytes)}（${s.groups.other.objects} 对象）\n` +
+          `  共 ${s.objectCount} 个对象`,
+      );
+    } catch (e) {
+      fail(EXIT.FAIL, e.message, json);
+    }
+  });
+
+program
+  .command('keep')
+  .description('标记某视频为「保护」（gc 永不删，收藏保护）（#51）')
+  .argument('<id>', '视频 ID（v 开头）')
+  .option('--json', 'JSON 输出')
+  .action(async (id, opts) => setKeep(id, true, !!opts.json));
+
+program
+  .command('unkeep')
+  .description('取消某视频的「保护」标记')
+  .argument('<id>', '视频 ID（v 开头）')
+  .option('--json', 'JSON 输出')
+  .action(async (id, opts) => setKeep(id, false, !!opts.json));
+
+async function setKeep(id, keep, json) {
+  const cfg = requireConfig(json);
+  try {
+    const client = makeClient(cfg);
+    const manifest = await getManifest(client, cfg.bucket);
+    const v = manifest.videos.find((x) => x.id === id);
+    if (!v) fail(EXIT.FAIL, `播放列表中没有 id=${id} 的视频`, json);
+    if (keep) v.keep = true;
+    else delete v.keep;
+    await putManifest(client, cfg.bucket, manifest);
+    emit(json, { ok: true, id, keep },
+      `${keep ? '已保护' : '已取消保护'} 视频 ${id}（${v.title}）—— gc ${keep ? '将永不删除它' : '不再特殊保护它'}`);
+  } catch (e) {
+    fail(EXIT.FAIL, e.message, json);
+  }
+}
+
+// 调 Worker /api/admin/watch-stats 拿每个视频的看完状态（受 PARENT_PIN 保护，非设备令牌）。
+// 任何失败都抛错 → gc 据此安全失败（宁可不删）。
+async function fetchWatchStats(gc) {
+  if (!gc.workerUrl) throw new Error('未配置 Worker 地址（设 CV_WORKER_URL 或 --worker）');
+  if (!gc.parentPin) throw new Error('未配置家长 PIN（设 PARENT_PIN 或 --pin）');
+  let resp;
+  try {
+    resp = await fetch(`${gc.workerUrl}/api/admin/watch-stats`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pin: gc.parentPin }),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (e) {
+    throw new Error(`查看完状态请求失败：${e.message}`);
+  }
+  if (resp.status === 401 || resp.status === 403) throw new Error('家长 PIN 校验失败（401/403）');
+  if (!resp.ok) throw new Error(`watch-stats 返回 HTTP ${resp.status}`);
+  const data = await resp.json().catch(() => null);
+  if (!data?.ok || typeof data.stats !== 'object') throw new Error('watch-stats 响应格式异常');
+  return data.stats; // { videoId: { watched, lastWatchedAt } }
+}
+
+program
+  .command('gc')
+  .description('超阈值时自动删「看完且过冷却期」的旧视频到低水位（#50）。默认直接执行，--dry-run 仅预览')
+  .option('--dry-run', '只列候选与预计释放，不真正删除')
+  .option('--cap-gb <n>', '存储上限 GB（默认 R2_CAP_GB 或 500）')
+  .option('--low-gb <n>', '低水位 GB（删到 ≤ 此值，默认 R2_LOW_GB 或 450）')
+  .option('--cooldown-days <n>', '看完后冷却天数（默认 GC_COOLDOWN_DAYS 或 7）')
+  .option('--worker <url>', 'Worker 地址（默认 CV_WORKER_URL）')
+  .option('--pin <pin>', '家长 PIN（默认 PARENT_PIN）')
+  .option('--json', 'JSON 输出')
+  .action(async (opts) => {
+    const json = !!opts.json;
+    const cfg = requireConfig(json);
+    const gc = loadGcConfig({
+      capGb: opts.capGb, lowGb: opts.lowGb, cooldownDays: opts.cooldownDays,
+      workerUrl: opts.worker, parentPin: opts.pin,
+    });
+    const GB = 1024 ** 3;
+    const log = (m) => { if (!json) console.error(m); };
+    try {
+      const client = makeClient(cfg);
+
+      // 1. 全量列举一次：算总用量 + 每个视频的实际占用（video+poster）
+      const objects = await listAllObjects(client, cfg.bucket);
+      let totalBytes = 0;
+      const vBytes = {};
+      for (const o of objects) {
+        totalBytes += o.size;
+        const m = o.key.match(/^videos\/([^/]+)\//);
+        if (m) vBytes[m[1]] = (vBytes[m[1]] || 0) + o.size;
+      }
+      const totalGb = totalBytes / GB;
+      log(`当前用量 ${fmtGb(totalBytes)} / 低水位 ${gc.lowGb}GB / 上限 ${gc.capGb}GB`);
+
+      // 2. 未超低水位 → 啥也不用删
+      if (totalGb <= gc.lowGb) {
+        emit(json, { ok: true, action: 'noop', totalBytes, totalGb, lowGb: gc.lowGb, deleted: [] },
+          `用量未超低水位（${fmtGb(totalBytes)} ≤ ${gc.lowGb}GB），无需清理。`);
+        return;
+      }
+
+      // 3. 拿看完状态（失败 = 安全失败，不删）
+      log('超过低水位，查询各视频看完状态…');
+      const watch = await fetchWatchStats(gc); // 抛错则进 catch → 不删
+
+      // 4. 组候选：看完 && 过冷却 && 非 keep；按上传时间 old→new
+      const manifest = await getManifest(client, cfg.bucket);
+      const now = Date.now();
+      const cooldownMs = gc.cooldownDays * 86400000;
+      const candidates = manifest.videos
+        .filter((v) => v.keep !== true)
+        .map((v) => ({ v, ws: watch[v.id], bytes: vBytes[v.id] ?? v.sizeBytes ?? 0 }))
+        .filter(({ ws }) => ws && ws.watched && ws.lastWatchedAt && (now - ws.lastWatchedAt) >= cooldownMs)
+        .sort((a, b) => (Date.parse(a.v.createdAt) || 0) - (Date.parse(b.v.createdAt) || 0));
+
+      // 5. 依次选到「删完 ≤ 低水位」为止
+      const needFree = totalBytes - gc.lowGb * GB;
+      const chosen = [];
+      let freed = 0;
+      for (const c of candidates) {
+        if (freed >= needFree) break;
+        chosen.push(c);
+        freed += c.bytes;
+      }
+      const planList = chosen.map((c) => ({
+        id: c.v.id, title: c.v.title, sizeBytes: c.bytes,
+        lastWatchedAt: c.ws.lastWatchedAt, createdAt: c.v.createdAt,
+      }));
+      const projectedBytes = totalBytes - freed;
+      const reachedLow = projectedBytes <= gc.lowGb * GB;
+
+      if (chosen.length === 0) {
+        emit(json, { ok: true, action: 'noop', reason: 'no_eligible_candidates', totalBytes, totalGb, candidates: 0, deleted: [] },
+          `超过低水位，但没有「看完且过冷却期、未保护」的可删视频，未删除任何内容。`);
+        return;
+      }
+
+      if (opts.dryRun) {
+        emit(json,
+          { ok: true, dryRun: true, totalBytes, lowGb: gc.lowGb, willDelete: planList,
+            freedBytes: freed, projectedBytes, reachedLow },
+          `[dry-run] 将删 ${chosen.length} 个视频，释放约 ${fmtGb(freed)}，预计剩 ${fmtGb(projectedBytes)}` +
+            `${reachedLow ? '（≤ 低水位）' : '（仍 > 低水位，候选不足）'}：\n` +
+            planList.map((p) => `  - ${p.id}  ${p.title}  ${fmtGb(p.sizeBytes)}  最后观看 ${new Date(p.lastWatchedAt).toISOString().slice(0, 10)}`).join('\n'));
+        return;
+      }
+
+      // 6. 真删：逐个删 R2 前缀 + 从 manifest 移除，最后单次写回 manifest（串行/幂等）
+      const deleted = [];
+      try {
+        for (const c of chosen) {
+          log(`删除 ${c.v.id}（${c.v.title}，${fmtGb(c.bytes)}）…`);
+          await deletePrefix(client, cfg.bucket, `videos/${c.v.id}/`);
+          deleted.push({ id: c.v.id, title: c.v.title, sizeBytes: c.bytes });
+        }
+      } finally {
+        if (deleted.length) {
+          const gone = new Set(deleted.map((d) => d.id));
+          manifest.videos = manifest.videos.filter((v) => !gone.has(v.id));
+          await putManifest(client, cfg.bucket, manifest);
+        }
+      }
+      const freedReal = deleted.reduce((n, d) => n + d.sizeBytes, 0);
+      const remaining = totalBytes - freedReal;
+      emit(json,
+        { ok: true, action: 'deleted', deleted, freedBytes: freedReal, remainingBytes: remaining,
+          remainingGb: remaining / GB, lowGb: gc.lowGb, reachedLow: remaining <= gc.lowGb * GB,
+          manifestVideos: manifest.videos.length },
+        `已删 ${deleted.length} 个看完旧视频，释放 ${fmtGb(freedReal)}，剩余用量约 ${fmtGb(remaining)}` +
+          `（低水位 ${gc.lowGb}GB${remaining <= gc.lowGb * GB ? '，已达标' : '，仍偏高：候选不足'}）。`);
+    } catch (e) {
+      // 安全失败：watch-stats 不可达/缺配置/任何异常 → 不删，退出非 0
+      fail(EXIT.FAIL, `gc 中止（安全失败，未删除任何内容）：${e.message}`, json);
     }
   });
 
