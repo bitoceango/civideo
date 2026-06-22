@@ -6,7 +6,8 @@
 //   GET  /media/:id/poster.jpg 封面图
 //   GET  /api/progress         返回本设备所有播放进度 + 今日已看时长
 //   POST /api/progress         上报某视频播放进度 + 累加今日时长
-// 所有 /api/* 与 /media/* （除 activate）都需 Authorization: Bearer <设备令牌>
+//   POST /api/admin/watch-stats 看完状态聚合查询（家长 PIN 保护，非设备令牌；供 cpv gc）
+// 所有 /api/* 与 /media/* （除 activate / health / admin/watch-stats）都需 Authorization: Bearer <设备令牌>
 
 import { AwsClient } from 'aws4fetch';
 
@@ -377,6 +378,39 @@ async function handleAdminManifestAdd(request, env) {
   return json({ ok: true, id, videos: manifest.videos.length });
 }
 
+// 看完状态查询（受 PARENT_PIN 保护，非设备令牌）：给 cpv gc 决定哪些视频可删。
+// 读 manifest 各视频 duration + 聚合 D1 watch_progress，每 videoId 回 {watched, lastWatchedAt}。
+// 只回聚合（任一设备看到结尾即 watched），不泄露 device_id 等设备明细。
+async function handleAdminWatchStats(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'bad_json' }, 400); }
+  if (!parentPinOk(env, body?.pin)) return json({ error: 'invalid_pin' }, 403);
+
+  // manifest 的视频时长（判定看完用）
+  const obj = await env.BUCKET.get(MANIFEST_KEY);
+  const manifest = obj ? JSON.parse(await obj.text()) : { videos: [] };
+  const durations = {};
+  for (const v of manifest.videos || []) durations[v.id] = Number(v.durationSec) || 0;
+
+  // 跨设备聚合：每个 video 取最大进度与最近观看时间（updated_at 为 epoch ms）
+  const { results } = await env.DB.prepare(
+    `SELECT video_id, MAX(position_sec) AS max_pos, MAX(updated_at) AS last_at
+       FROM watch_progress GROUP BY video_id`,
+  ).all();
+
+  const eps = Number(env.WATCH_DONE_EPS_SEC ?? 15); // 距结尾 ≤eps 秒即算看完（片尾/误差容忍）
+  const stats = {};
+  for (const r of results || []) {
+    const dur = durations[r.video_id] || 0;
+    stats[r.video_id] = {
+      watched: dur > 0 ? r.max_pos >= dur - eps : false,
+      lastWatchedAt: r.last_at || null,
+      positionSec: r.max_pos,
+    };
+  }
+  return json({ ok: true, stats });
+}
+
 function ruleSummary(device) {
   return {
     dailyLimitMin: device.daily_limit_min,
@@ -457,6 +491,11 @@ export default {
 
       // 健康检查（无需鉴权，不泄露内容）
       if (path === '/api/health') return json({ ok: true });
+
+      // 看完状态查询（家长 PIN 保护，非设备令牌）：供 cpv gc 调用，故置于设备门之前
+      if (path === '/api/admin/watch-stats' && request.method === 'POST') {
+        return await handleAdminWatchStats(request, env);
+      }
 
       // 以下全部需要设备令牌
       const device = await authDevice(request, env);
