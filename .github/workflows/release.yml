@@ -81,10 +81,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: windows
+      - name: 重命名为干净 ASCII 安装包名（#40：中文 productName 致 NSIS 产物名带中文）
+        shell: bash
+        run: |
+          SRC=$(find windows/src-tauri/target/release/bundle/nsis -name '*-setup.exe' | head -1)
+          cp "$SRC" "$GITHUB_WORKSPACE/childvideo-windows-x64-setup.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: windows/src-tauri/target/release/bundle/nsis/*-setup.exe
+          path: childvideo-windows-x64-setup.exe
           if-no-files-found: error
 
   android:
@@ -150,7 +155,7 @@ jobs:
 
             | 平台 | 产物 | 安装 |
             |---|---|---|
-            | **Windows** | `儿童视频_*_x64-setup.exe` | 双击装。未签名 → SmartScreen「更多信息 → 仍要运行」。含家长上传/网址下载 |
+            | **Windows** | `childvideo-windows-x64-setup.exe` | 双击装。未签名 → SmartScreen「更多信息 → 仍要运行」。含家长上传/网址下载 |
             | **Android** | `childvideo-android.apk` | 开「允许未知来源」装（arm64）。消费端：视频 + 听书 |
             | **iOS** | `childvideo-ios-unsigned.ipa` | ⚠️ 不能直接装，需 SideStore/AltStore 自签侧载 |
             | **CLI** | `childvideo-cli.tgz` | `npm i -g ./childvideo-cli.tgz`，上传视频到你的 R2 |

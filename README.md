@@ -6,6 +6,8 @@
 
 一套**家庭自用**的私有儿童视频流媒体：家长把视频上传到 Cloudflare R2，孩子在原生 App（**iPhone / iPad / Mac / Windows / Android**）里**看视频 + 听书**。家长可在桌面端（Windows/macOS）开发者模式里**自助上传本地视频或从网址（YouTube/Bilibili）下载入库**。
 
+> **English** — *child-video* is a self-hosted, ad-free **kids' video + audiobook** streaming player with parental controls. Parents upload to their own **Cloudflare R2**; kids watch in a closed player — no recommendations, ads, comments, or external links. Native apps for **iOS / iPadOS / macOS** (SwiftUI) and **Windows / Android** (Tauri); serverless backend on **Cloudflare Workers + R2 + D1**. Runs at roughly **$0** on the free tier.
+
 **为什么自己建**：商业视频平台充斥推荐流、广告和不适合孩子的内容，孩子很容易被无关视频吸引、无法专注。这个项目是一个**封闭内容花园**——孩子端没有外部搜索、没有外部入口、没有推荐算法、没有弹幕/社交，**只能看到家长放进去的内容**。
 
 > 月成本只有 R2 存储费（起步在免费额度内 = $0，约 500GB ≈ $7/月），出口流量永久免费，**无任何年费**（孩子端用 SideStore 免费侧载，不交 Apple Developer $99/年）。
@@ -46,7 +48,7 @@
 
 | 平台 | 产物 | 安装 |
 |---|---|---|
-| **Windows** | `儿童视频_*_x64-setup.exe` | 双击装。未签名 → SmartScreen 点「更多信息 → 仍要运行」 |
+| **Windows** | `childvideo-windows-x64-setup.exe` | 双击装。未签名 → SmartScreen 点「更多信息 → 仍要运行」 |
 | **macOS** | `儿童视频_*_aarch64.dmg` | 拖入 Applications。未签名/未公证 → 右键「打开」或 `xattr -dr com.apple.quarantine` |
 | **Android** | `app-universal-debug.apk` | 手机开「允许安装未知来源」后装（debug 通用包，体积偏大） |
 | **iOS** | `*-unsigned.ipa` | ⚠️ 不能直接装，需 SideStore/AltStore 自签侧载 |
